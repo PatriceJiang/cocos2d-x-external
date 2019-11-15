@@ -7,7 +7,7 @@ if(WIN32)
     add_definitions(
         /D_CRT_SECURE_NO_DEPRECATE
         /D_CRT_SECURE_NO_WARNINGS
-    #    "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
+        "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
     )
     string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" win_platform)
     if("${win_platform}" STREQUAL "win32")
@@ -29,14 +29,15 @@ if(WIN32)
 endif()
 
 set(output_dir ${CMAKE_BINARY_DIR}/include)
+#set(output_dir ${CMAKE_CURRENT_LIST_DIR}/src)
 
 set(SRC_HEADERS 
-    lua.h
-    lualib.h
-    lauxlib.h
-    luaconf.h 
-    lua.hpp
-    luajit.h
+    ${CMAKE_CURRENT_LIST_DIR}/src/lua.h
+    ${CMAKE_CURRENT_LIST_DIR}/src/lualib.h
+    ${CMAKE_CURRENT_LIST_DIR}/src/lauxlib.h
+    ${CMAKE_CURRENT_LIST_DIR}/src/luaconf.h 
+    ${CMAKE_CURRENT_LIST_DIR}/src/lua.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/luajit.h
 )
 
 set(LBLIB_SC
@@ -52,6 +53,9 @@ set(LBLIB_SC
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_jit.c 
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_ffi.c
 )
+
+
+add_executable(print_args src/print_args.c)
 
 ### minilua
 add_executable(minilua 
@@ -84,16 +88,27 @@ target_compile_options(buildvm PRIVATE
 
 ### lua
 file(GLOB lua_src src/lj_*.c src/lib_*.c)
-add_library(lua SHARED
-    ${lua_src}
-)
-target_compile_definitions(lua PUBLIC
-    LUA_BUILD_AS_DLL
-)
+set(BUILD_LUA_STATIC ON)
+if(BUILD_LUA_STATIC)
+    add_library(lua
+        ${lua_src}
+    )
+else()
+    add_library(lua SHARED
+        ${lua_src}
+    )
+    target_compile_definitions(lua PUBLIC
+        LUA_BUILD_AS_DLL
+    )
+endif()
+
 target_include_directories(lua PRIVATE
     ${output_dir}
 )
 
+set_target_properties(lua PROPERTIES  
+    PUBLIC_HEADER "${SRC_HEADERS}"
+)
 
 ### luajit
 add_executable(luajit 
@@ -107,22 +122,26 @@ target_compile_definitions(luajit PRIVATE
 target_link_libraries(luajit lua)
 
 ### generate headers 
-function(buildvm_generate file arg src_list)
-    add_custom_command(OUTPUT ${file}
-        COMMAND buildvm -m ${arg} -o ${file} ${src_list}
-        DEPENDS ${src_list}
+function(buildvm_generate)
+    set(oneValueArgs DEF OUTPUT)
+    set(multiValueArgs DEPENDS)
+    cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    add_custom_command(OUTPUT ${opt_OUTPUT} 
+        COMMAND print_args ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
+        COMMAND buildvm ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
+        DEPENDS ${opt_DEPENDS}
     )
-    target_sources(lua PRIVATE ${file})
+    target_sources(lua PRIVATE ${opt_OUTPUT})
 endfunction()
 
 
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_vm.obj peobj "")
-buildvm_generate(${output_dir}/lj_bcdef.h bcdef ${LBLIB_SC})
-buildvm_generate(${output_dir}/lj_ffdef.h ffdef ${LBLIB_SC})
-buildvm_generate(${output_dir}/lj_libdef.h libdef ${LBLIB_SC})
-buildvm_generate(${output_dir}/lj_recdef.h recdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua vmdef ${LBLIB_SC})
-buildvm_generate(${output_dir}/lj_folddef.h folddef ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
+buildvm_generate(OUTPUT ${output_dir}/objs/lj_vm.obj DEF peobj)
+buildvm_generate(OUTPUT ${output_dir}/lj_bcdef.h DEF bcdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${output_dir}/lj_ffdef.h DEF ffdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${output_dir}/lj_libdef.h DEF libdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${output_dir}/lj_recdef.h DEF recdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua DEF vmdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${output_dir}/lj_folddef.h DEF folddef DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
 
 ### buildvm
 
@@ -135,10 +154,10 @@ message(STATUS "target CMAKE_SYSTEM_PROCESSOR:
 if(WIN32)
 
     if(BUILD_WIN32)
-        set(DASM_AFLAGS -D WIN -D JIT -D FFI )
+        set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI)
         set(DASM_ARCH x86)
     else()
-        set(DASM_AFLAGS -D WIN -D JIT -D FFI -D P64)
+        set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI -D P64)
         set(DASM_ARCH x64)
     endif()
 endif()
@@ -148,8 +167,12 @@ message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
+
+
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    COMMAND ${CMAKE_COMMAND} -E echo "dynasm.lua flags: ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc"
-    COMMAND minilua ${dynasm_dir}/dynasm.lua -LN ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
-    DEPENDS ${dasm_lua}
+    COMMAND ${CMAKE_COMMAND} -E echo "dynasm.lua flags: -LN ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc"
+    COMMAND print_args ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
+    COMMAND minilua ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
+#  DEPENDS ${dasm_lua}
+  
 )
