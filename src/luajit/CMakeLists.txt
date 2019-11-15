@@ -55,8 +55,6 @@ set(LBLIB_SC
 )
 
 
-add_executable(print_args src/print_args.c)
-
 ### minilua
 add_executable(minilua 
     ${CMAKE_CURRENT_LIST_DIR}/src/host/minilua.c
@@ -76,6 +74,11 @@ add_executable(buildvm
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_lib.c
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_fold.c
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+)
+
+add_custom_command(TARGET buildvm POST_BUILD 
+    COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h}"
+    COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 )
 target_include_directories(buildvm PRIVATE
     src/host
@@ -114,12 +117,13 @@ set_target_properties(lua PROPERTIES
 add_executable(luajit 
     ${CMAKE_CURRENT_LIST_DIR}/src/luajit.c
 )
-
 target_compile_definitions(luajit PRIVATE
     _CRT_SECURE_NO_DEPRECATE
 )
-
 target_link_libraries(luajit lua)
+set_target_properties(luajit PROPERTIES 
+    LINK_FLAGS /SUBSYSTEM:CONSOLE
+)
 
 ### generate headers 
 function(buildvm_generate)
@@ -127,11 +131,14 @@ function(buildvm_generate)
     set(multiValueArgs DEPENDS)
     cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
     add_custom_command(OUTPUT ${opt_OUTPUT} 
-        COMMAND print_args ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
         COMMAND buildvm ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
         DEPENDS ${opt_DEPENDS}
     )
     target_sources(lua PRIVATE ${opt_OUTPUT})
+    add_custom_command(TARGET lua POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${opt_OUTPUT}"
+        COMMAND ${CMAKE_COMMAND} -E remove -f ${opt_OUTPUT}
+    )
 endfunction()
 
 
@@ -162,17 +169,13 @@ if(WIN32)
     endif()
 endif()
 
-message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
-
-
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    COMMAND ${CMAKE_COMMAND} -E echo "dynasm.lua flags: -LN ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc"
-    COMMAND print_args ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
-    COMMAND minilua ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
-#  DEPENDS ${dasm_lua}
-  
+    COMMAND minilua ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o 
+        ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h 
+        ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
+    DEPENDS ${dasm_lua}
 )
