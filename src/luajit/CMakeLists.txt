@@ -7,7 +7,7 @@ if(WIN32)
     add_definitions(
         /D_CRT_SECURE_NO_DEPRECATE
         /D_CRT_SECURE_NO_WARNINGS
-        "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
+    #    "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
     )
     string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" win_platform)
     if("${win_platform}" STREQUAL "win32")
@@ -19,6 +19,8 @@ if(WIN32)
     if(BUILD_WIN32)
         set(CMAKE_C_FLAGS  /arch:SSE2)
         set(CMAKE_CXX_FLAGS  /arch:SSE2)
+    else()
+        add_definitions(/DLUAJIT_ENABLE_GC64)
     endif()
 
     message(STATUS "BUILD_WIN64: " ${BUILD_WIN64})
@@ -26,6 +28,7 @@ if(WIN32)
 
 endif()
 
+set(output_dir ${CMAKE_BINARY_DIR}/include)
 
 set(SRC_HEADERS 
     lua.h
@@ -87,6 +90,9 @@ add_library(lua SHARED
 target_compile_definitions(lua PUBLIC
     LUA_BUILD_AS_DLL
 )
+target_include_directories(lua PRIVATE
+    ${output_dir}
+)
 
 
 ### luajit
@@ -111,12 +117,12 @@ endfunction()
 
 
 buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_vm.obj peobj "")
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_bcdef.h bcdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_ffdef.h ffdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_libdef.h libdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_recdef.h recdef ${LBLIB_SC})
+buildvm_generate(${output_dir}/lj_bcdef.h bcdef ${LBLIB_SC})
+buildvm_generate(${output_dir}/lj_ffdef.h ffdef ${LBLIB_SC})
+buildvm_generate(${output_dir}/lj_libdef.h libdef ${LBLIB_SC})
+buildvm_generate(${output_dir}/lj_recdef.h recdef ${LBLIB_SC})
 buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua vmdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_folddef.h folddef ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
+buildvm_generate(${output_dir}/lj_folddef.h folddef ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
 
 ### buildvm
 
@@ -129,9 +135,11 @@ message(STATUS "target CMAKE_SYSTEM_PROCESSOR:
 if(WIN32)
 
     if(BUILD_WIN32)
-        set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI )
+        set(DASM_AFLAGS -D WIN -D JIT -D FFI )
+        set(DASM_ARCH x86)
     else()
-        set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI -D P64)
+        set(DASM_AFLAGS -D WIN -D JIT -D FFI -D P64)
+        set(DASM_ARCH x64)
     endif()
 endif()
 
@@ -141,7 +149,7 @@ set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    COMMAND minilua ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-        ${CMAKE_CURRENT_LIST_DIR}/src/vm_x86.dasc
+    COMMAND ${CMAKE_COMMAND} -E echo "dynasm.lua flags: ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc"
+    COMMAND minilua ${dynasm_dir}/dynasm.lua -LN ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
     DEPENDS ${dasm_lua}
 )
