@@ -4,7 +4,11 @@ project(luajit C)
 
 
 if(WIN32)
-    add_definitions(/D_CRT_SECURE_NO_DEPRECATE /D_CRT_SECURE_NO_WARNINGS)
+    add_definitions(
+        /D_CRT_SECURE_NO_DEPRECATE
+        /D_CRT_SECURE_NO_WARNINGS
+        "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
+    )
     string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" win_platform)
     if("${win_platform}" STREQUAL "win32")
         set(BUILD_WIN32 ON)
@@ -64,12 +68,11 @@ add_executable(buildvm
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_peobj.c 
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_lib.c
     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_fold.c
-    ${CMAKE_BINARY_DIR}/include/buildvm_arch.h
+    ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 )
 target_include_directories(buildvm PRIVATE
     src/host
     src
-    ${CMAKE_BINARY_DIR}/include
     ${CMAKE_CURRENT_LIST_DIR}/dynasm
 )
 target_compile_options(buildvm PRIVATE 
@@ -80,10 +83,6 @@ target_compile_options(buildvm PRIVATE
 file(GLOB lua_src src/lj_*.c src/lib_*.c)
 add_library(lua SHARED
     ${lua_src}
-    #${CMAKE_CURRENT_LIST_DIR}/src/ljamalg.c
-)
-target_include_directories(lua PRIVATE     
-    ${CMAKE_BINARY_DIR}/include
 )
 target_compile_definitions(lua PUBLIC
     LUA_BUILD_AS_DLL
@@ -94,9 +93,7 @@ target_compile_definitions(lua PUBLIC
 add_executable(luajit 
     ${CMAKE_CURRENT_LIST_DIR}/src/luajit.c
 )
-target_include_directories(luajit PRIVATE     
-    ${CMAKE_BINARY_DIR}/include
-)
+
 target_compile_definitions(luajit PRIVATE
     _CRT_SECURE_NO_DEPRECATE
 )
@@ -113,13 +110,13 @@ function(buildvm_generate file arg src_list)
 endfunction()
 
 
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_vm.obj peobj "")
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_bcdef.h bcdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_ffdef.h ffdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_libdef.h libdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_recdef.h recdef ${LBLIB_SC})
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_vm.obj peobj "")
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_bcdef.h bcdef ${LBLIB_SC})
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_ffdef.h ffdef ${LBLIB_SC})
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_libdef.h libdef ${LBLIB_SC})
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_recdef.h recdef ${LBLIB_SC})
 buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua vmdef ${LBLIB_SC})
-buildvm_generate(${CMAKE_BINARY_DIR}/include/lj_folddef.h folddef ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
+buildvm_generate(${CMAKE_CURRENT_LIST_DIR}/src/lj_folddef.h folddef ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
 
 ### buildvm
 
@@ -143,8 +140,8 @@ message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/include/buildvm_arch.h
-    COMMAND minilua ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_BINARY_DIR}/include/buildvm_arch.h
+add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+    COMMAND minilua ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
         ${CMAKE_CURRENT_LIST_DIR}/src/vm_x86.dasc
     DEPENDS ${dasm_lua}
 )
