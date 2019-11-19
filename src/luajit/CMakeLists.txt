@@ -7,7 +7,7 @@ if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     #set(HOST_GENERATOR "MinGW Makefiles")
     set(HOST_CMAKE cmake)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
-    set(HOST_GENERATOR "Xcode")
+    set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
@@ -35,6 +35,10 @@ elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
     set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
     set(LINUX ON)
+elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
+    set(APPLE ON)
 endif()
 
 
@@ -49,11 +53,24 @@ message(STATUS "target CMAKE_SYSTEM_PROCESSOR:
 
 set(DASM_ARCH)
 set(DASM_AFLAGS)
+#set(HOST_CFLAGS)
 set(LJ_VM lj_vm.obj)
 set(LJVM_MODE elfasm)
 
 set(TARGET_LJARCH)
 set(TARGET_ARCH)
+
+
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
+    list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OSX)
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+    list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
+    list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_WINDOWS -malign-double)
+else()
+    list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OTHER)
+endif()
+
 
 if(MSVC)
     add_definitions(
@@ -88,7 +105,9 @@ if(MSVC)
     set(LJVM_MODE peobj)
 endif()
 
-if(ANDROID OR LINUX)
+if(ANDROID OR LINUX OR APPLE)
+
+    set(default_flags ${CMAKE_C_FLAGS})
 
     if(ANDROID)
         if("${ANDROID_ABI}" MATCHES "armeabi.*")
@@ -103,16 +122,21 @@ if(ANDROID OR LINUX)
         else()
             message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
         endif()
-    else()
+    elseif(LINUX)
         # set(DASM_ARCH x86)
         # list(APPEND TARGET_ARCH "-m32")
 
         set(DASM_ARCH x64)
+        list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
+    elseif(APPLE)
+       # set(DASM_ARCH x64)
+
+        set(DASM_ARCH x86)
+        list(APPEND default_flags "-m32")
 
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
-    set(default_flags ${CMAKE_C_FLAGS})
     separate_arguments(default_flags)
     if(ANDROID)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
@@ -130,7 +154,7 @@ if(ANDROID OR LINUX)
             OUTPUT_VARIABLE TARGET_TESTARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-    else()
+    elseif(LINUX OR APPLE)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
             ${default_flags}
            -D_FILE_OFFSET_BITS=64
@@ -260,13 +284,14 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 #    string(REGEX REPLACE "-D" "/D" TARGET_ARCH "${TARGET_ARCH}")
 #endif()
 
+list(APPEND HOST_CFLAGS ${TARGET_ARCH})
 add_custom_target(buildvm 
     #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
     COMMAND ${HOST_CMAKE}
         -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/buildvm" 
-        -D CMAKE_C_FLAGS=${TARGET_ARCH}
+        -D CMAKE_C_FLAGS=${HOST_CFLAGS}
         #-Awin32
     COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
