@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 
-project(luajit C)
+project(minilua C)
 
 
 if(WIN32)

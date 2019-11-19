@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 
-project(luajit C)
+project(buildvm C)
 
 
 if(WIN32)
@@ -8,6 +8,18 @@ if(WIN32)
         /D_CRT_SECURE_NO_DEPRECATE
         /D_CRT_SECURE_NO_WARNINGS
     )
+    
+    string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" win_platform)
+    if("${win_platform}" STREQUAL "win32")
+        set(BUILD_WIN32 ON)
+    else()
+        set(BUILD_WIN64 ON)
+    endif()
+
+    if(BUILD_WIN32)
+        set(CMAKE_C_FLAGS  /arch:SSE2)
+        set(CMAKE_CXX_FLAGS  /arch:SSE2)
+    endif()
 endif()
 
 ### minilua

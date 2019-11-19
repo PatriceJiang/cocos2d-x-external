@@ -4,6 +4,7 @@ project(luajit C)
 
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(HOST_GENERATOR "Visual Studio 15 2017")
+    set(HOST_GENERATOR "MinGW Makefiles")
     set(HOST_CMAKE cmake)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Xcode")
@@ -23,20 +24,12 @@ else()
 set(BUILD_LUA_STATIC ON)
 endif()
 
-add_custom_target(minilua 
-    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-    COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
-        -G ${HOST_GENERATOR}
-        -B"${CMAKE_BINARY_DIR}/minilua" 
-        -DCMAKE_BUILD_TYPE=Debug
-    COMMAND ${HOST_CMAKE} --build "${CMAKE_BINARY_DIR}/minilua"
-)
 
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
-    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
-    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
-    # set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
-    # set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
+    #set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
+    #set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
 endif()
 
 
@@ -51,7 +44,8 @@ message(STATUS "target CMAKE_SYSTEM_PROCESSOR:
 
 set(DASM_ARCH)
 set(DASM_AFLAGS)
-
+set(LJ_VM lj_vm.obj)
+set(LJVM_MODE elfasm)
 if(MSVC)
     add_definitions(
         /D_CRT_SECURE_NO_DEPRECATE
@@ -78,10 +72,11 @@ if(MSVC)
     if(BUILD_WIN32)
         set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI)
         set(DASM_ARCH x86)
-    else()
+    elseif(BUILD_WIN64)
         set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI -D P64)
         set(DASM_ARCH x64)
     endif()
+    set(LJVM_MODE peobj)
 endif()
 
 if(ANDROID)
@@ -197,9 +192,13 @@ if(ANDROID)
         set(TARGET_ARCH "${TARGET_ARCH} -DDLUAJIT_NO_UNWIND")
     endif()
 
-    string(REGEX MATCHALL ".*LJ_ARCH_VERSION.*" version_string "${TARGET_TESTARCH}")
-    #message(WARNING "LJ_ARCH_VERSION -> ${version_string}")
-    #set(DASM_AFLAGS "${DASM_AFLAGS} -D VER=")
+    string(REGEX MATCH "LJ_ARCH_VERSION [0-9]+" version_string "${TARGET_TESTARCH}")
+    message(WARNING "LJ_ARCH_VERSION -> ${version_string}")
+    if(version_string)
+        string(LENGTH "LJ_ARCH_VERSION " start_index)
+        string(SUBSTRING "${version_string}" ${start_index} -1 version_number)
+        list(APPEND DASM_AFLAGS -D VER=${version_number})
+    endif()
     
     if("${TARGET_LJARCH}" STREQUAL "x64")
         string(FIND "${TARGET_TESTARCH}" "LJ_FR2 1" fpos)
@@ -208,23 +207,30 @@ if(ANDROID)
         endif()
     endif()
 
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TARGET_ARCH}")
+    #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${TARGET_ARCH}")
 
+    set(LJ_VM lj_vm.S)
 
 endif()
 
 message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 message(STATUS "DASM_ARCH: ${DASM_ARCH}")
+message(STATUS "TARGET_ARCH: ${TARGET_ARCH}")
 
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+    COMMAND ${CMAKE_COMMAND} -E echo "DASM_AFLAGS:: ${DASM_AFLAGS}"
     COMMAND ${MINILUA} ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o 
         ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h 
         ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
     DEPENDS minilua ${dasm_lua} 
 )
+
+#if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
+#    string(REGEX REPLACE "-D" "/D" TARGET_ARCH "${TARGET_ARCH}")
+#endif()
 
 add_custom_target(buildvm 
     #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
@@ -232,9 +238,21 @@ add_custom_target(buildvm
         -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm 
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/buildvm" 
-        -Awin32
+        -D CMAKE_C_FLAGS="${TARGET_ARCH}"
+        #-Awin32
     COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+)
+
+
+add_custom_target(minilua 
+    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+    COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
+        -G ${HOST_GENERATOR}
+        -B"${CMAKE_BINARY_DIR}/minilua" 
+        -D CMAKE_C_FLAGS="${TARGET_ARCH}"
+        -DCMAKE_BUILD_TYPE=Debug
+    COMMAND ${HOST_CMAKE} --build "${CMAKE_BINARY_DIR}/minilua"
 )
 
 
@@ -324,7 +342,7 @@ function(buildvm_generate)
 endfunction()
 
 
-buildvm_generate(OUTPUT ${output_dir}/objs/lj_vm.obj DEF peobj)
+buildvm_generate(OUTPUT ${output_dir}/objs/${LJ_VM} DEF ${LJVM_MODE})
 buildvm_generate(OUTPUT ${output_dir}/lj_bcdef.h DEF bcdef DEPENDS ${LBLIB_SC})
 buildvm_generate(OUTPUT ${output_dir}/lj_ffdef.h DEF ffdef DEPENDS ${LBLIB_SC})
 buildvm_generate(OUTPUT ${output_dir}/lj_libdef.h DEF libdef DEPENDS ${LBLIB_SC})

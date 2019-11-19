@@ -1,0 +1,5 @@
+android/app/.externalNativeBuild
+android/.gradle
+android/.idea
+android/local.properties
+android/android.iml
