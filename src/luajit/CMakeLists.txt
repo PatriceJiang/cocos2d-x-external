@@ -4,7 +4,7 @@ project(luajit C)
 
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(HOST_GENERATOR "Visual Studio 15 2017")
-    set(HOST_GENERATOR "MinGW Makefiles")
+    #set(HOST_GENERATOR "MinGW Makefiles")
     set(HOST_CMAKE cmake)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Xcode")
@@ -26,10 +26,10 @@ endif()
 
 
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
-    #set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
-    #set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
-    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
-    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
+    # set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
+    # set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
 endif()
 
 
@@ -289,29 +289,29 @@ set(LBLIB_SC
 
 ### lua
 file(GLOB lua_src src/lj_*.c src/lib_*.c)
-
+set(LUA luajit)
 if(BUILD_LUA_STATIC)
-    add_library(lua
+    add_library(${LUA}
         ${lua_src}
     )
 else()
-    add_library(lua SHARED
+    add_library(${LUA} SHARED
         ${lua_src}
     )
-    target_compile_definitions(lua PUBLIC
+    target_compile_definitions(${LUA} PUBLIC
         LUA_BUILD_AS_DLL
     )
+
 endif()
 
-target_include_directories(lua PRIVATE
+target_include_directories(${LUA} PRIVATE
     ${output_dir}
 )
-
-set_target_properties(lua PROPERTIES  
+set_target_properties(${LUA} PROPERTIES  
     PUBLIC_HEADER "${SRC_HEADERS}"
 )
 
-add_dependencies(lua minilua buildvm)
+add_dependencies(${LUA} minilua buildvm)
 
 ### luajit
 # add_executable(luajit 
@@ -334,8 +334,8 @@ function(buildvm_generate)
         COMMAND ${BUILDVM} ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
         DEPENDS ${opt_DEPENDS}
     )
-    target_sources(lua PRIVATE ${opt_OUTPUT})
-    add_custom_command(TARGET lua POST_BUILD
+    target_sources(${LUA} PRIVATE ${opt_OUTPUT})
+    add_custom_command(TARGET ${LUA} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${opt_OUTPUT}"
         COMMAND ${CMAKE_COMMAND} -E remove -f ${opt_OUTPUT}
     )
@@ -350,3 +350,4 @@ buildvm_generate(OUTPUT ${output_dir}/lj_recdef.h DEF recdef DEPENDS ${LBLIB_SC}
 buildvm_generate(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua DEF vmdef DEPENDS ${LBLIB_SC})
 buildvm_generate(OUTPUT ${output_dir}/lj_folddef.h DEF folddef DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
 
+install(TARGETS ${LUA})
