@@ -9,6 +9,10 @@ if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
+    execute_process(COMMAND xcrun --sdk macosx --show-sdk-path
+        OUTPUT_VARIABLE sdk_path 
+    )
+    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_OSX_SYSROOT=${sdk_path})
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
@@ -30,15 +34,15 @@ if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
     # set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
     # set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
-    set(WINDOWS ON)
+    set(HOST_WINDOWS ON)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
     set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
-    set(LINUX ON)
+    set(HOST_LINUX ON)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
     set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
-    set(APPLE ON)
+    set(HOST_APPLE ON)
 endif()
 
 
@@ -47,8 +51,8 @@ endif()
 
 message(STATUS "target CMAKE_SYSTEM_PROCESSOR: 
     ${CMAKE_SYSTEM_PROCESSOR}
-    ${CMAKE_GENERATOR_PLATFORM}
-    ${CMAKE_SYSTEM_NAME}
+    CMAKE_GENERATOR_PLATFORM : ${CMAKE_GENERATOR_PLATFORM}
+    CMAKE_SYSTEM_NAME : ${CMAKE_SYSTEM_NAME}
     ")
 
 set(DASM_ARCH)
@@ -63,10 +67,20 @@ set(TARGET_ARCH)
 
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OSX)
+    set(TARGET_OSX ON)
 elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
+    set(TARGET_LINUX ON)
 elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_WINDOWS -malign-double)
+    set(TARGET_WINDOWS ON)
+elseif("${CMAKE_SYSTEM_NAME}" STREQUAL "iOS")
+    list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OSX)
+    set(TARGET_IOS ON)
+    execute_process(COMMAND xcrun --sdk iphoneos --show-sdk-path
+        OUTPUT_VARIABLE sdk_path 
+    )
+    set(IOS_SDK ${sdk_path})
 else()
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OTHER)
 endif()
@@ -105,7 +119,7 @@ if(MSVC)
     set(LJVM_MODE peobj)
 endif()
 
-if(ANDROID OR LINUX OR APPLE)
+if(ANDROID OR HOST_LINUX OR HOST_APPLE)
 
     set(default_flags ${CMAKE_C_FLAGS})
 
@@ -122,18 +136,22 @@ if(ANDROID OR LINUX OR APPLE)
         else()
             message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
         endif()
-    elseif(LINUX)
+    elseif(HOST_LINUX)
         # set(DASM_ARCH x86)
         # list(APPEND TARGET_ARCH "-m32")
 
         set(DASM_ARCH x64)
         list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
-    elseif(APPLE)
+    elseif(TARGET_OSX)
        # set(DASM_ARCH x64)
 
         set(DASM_ARCH x86)
         list(APPEND default_flags "-m32")
-
+        set(LJVM_MODE machasm)
+    elseif(TARGET_IOS)
+        set(DASM_ARCH arm64)
+        set(LJVM_MODE machasm)
+        list(APPEND default_flags -m -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
@@ -148,13 +166,28 @@ if(ANDROID OR LINUX OR APPLE)
             -U_FORTIFY_SOURCE
             -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
             -dM
-            #-arch armeabi-v7a
-            #-march=${ANDROID_ABI}
             -mfloat-abi=softfp -Wl,--fix-cortex-a8
             OUTPUT_VARIABLE TARGET_TESTARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-    elseif(LINUX OR APPLE)
+    elseif(TARGET_IOS)
+        message(STATUS "？？？CMAKE_C_COMPILER: ${CMAKE_C_COMPILER}")
+        message(STATUS "？？？IOS_SDK: ${IOS_SDK}")
+        message(STATUS "？？？CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+
+        execute_process(COMMAND ${CMAKE_C_COMPILER}
+            --sysroot ${IOS_SDK}
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGETFILE_SOURCE
+            -U_FORTIFY_SOURCE
+            -arch arm64
+            -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
+            -dM
+            -mfloat-abi=softfp -Wl,--fix-cortex-a8
+            OUTPUT_VARIABLE TARGET_TESTARCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+    elseif(HOST_LINUX OR HOST_APPLE)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
             ${default_flags}
            -D_FILE_OFFSET_BITS=64
@@ -165,10 +198,16 @@ if(ANDROID OR LINUX OR APPLE)
             OUTPUT_VARIABLE TARGET_TESTARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
             )
+    else()
+        message(FATAL_ERROR "Dont know which platform")
     endif()
     #message(WARNING "TARGET_TESTARCH: ${TARGET_TESTARCH}")
     #file(WRITE "C:/Projects/output.txt" ${TARGET_TESTARCH})
+    file(WRITE "/Users/cocos/Projects/output.txt" ${TARGET_TESTARCH})
 
+    if("${TARGET_TESTARCH}" STREQUAL "")
+        message(FATAL_ERROR "Failed to exec ")
+    endif()
 
 
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_X64 " fpos)
@@ -184,12 +223,18 @@ if(ANDROID OR LINUX OR APPLE)
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_ARM " fpos)
     if(${fpos} GREATER -1)
         set(TARGET_LJARCH arm)
+        if(TARGET_IOS)
+            list(APPEND TARGET_ARCH -D IOS)
+        endif()
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_ARM64 " fpos)
     if(${fpos} GREATER -1)
         set(TARGET_LJARCH arm64)
-        list(APPEND TARGET_ARCH "-D__AARCH64EB__=1")
+        string(FIND "${TARGET_TESTARCH}" "__AARCH64EB__" fpos)
+        if(${fpos} GREATER -1)
+            list(APPEND TARGET_ARCH "-D__AARCH64EB__=1")
+        endif()
     endif()
 
     list(APPEND TARGET_ARCH "-DLUAJIT_TARGET=LUAJIT_ARCH_${TARGET_LJARCH}")
@@ -268,6 +313,7 @@ endif()
 message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 message(STATUS "DASM_ARCH: ${DASM_ARCH}")
 message(STATUS "TARGET_ARCH: ${TARGET_ARCH}")
+message(STATUS "HOST_SYSTEM_NAME: ${HOST_SYSTEM_NAME}")
 
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
@@ -286,25 +332,30 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 
 list(APPEND HOST_CFLAGS ${TARGET_ARCH})
 add_custom_target(buildvm 
-    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
     COMMAND ${HOST_CMAKE}
         -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/buildvm" 
-        -D CMAKE_C_FLAGS=${HOST_CFLAGS}
+        -D CMAKE_C_FLAGS="${HOST_CFLAGS}"
+        ${HOST_SYSTEM_NAME}
         #-Awin32
     COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 )
 
+set(flags "${HOST_CFLAGS}")
+string(REPLACE ";" " " flags "${flags}")
 
 add_custom_target(minilua
-    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-    COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua
+    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+    #COMMAND ${CMAKE_COMMAND} -E echo "${HOST_SYSTEM_NAME}"
+     COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/minilua"
-        -D CMAKE_C_FLAGS=${TARGET_ARCH}
         -DCMAKE_BUILD_TYPE=Debug
+        -D CMAKE_C_FLAGS="${HOST_CFLAGS}"
+        ${HOST_SYSTEM_NAME}
     COMMAND ${HOST_CMAKE} --build "${CMAKE_BINARY_DIR}/minilua"
 )
 
