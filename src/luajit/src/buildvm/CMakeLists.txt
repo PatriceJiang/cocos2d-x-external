@@ -23,7 +23,7 @@ if(WIN32)
 endif()
 
 ### minilua
-add_executable(buildvm 
+add_executable(buildvm
     ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm.c 
     ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm_asm.c 
     ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm_peobj.c 
@@ -42,3 +42,7 @@ target_include_directories(buildvm PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../host
     ${CMAKE_CURRENT_LIST_DIR}/../../dynasm
 )
+
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
+    target_link_libraries(buildvm m)
+endif()

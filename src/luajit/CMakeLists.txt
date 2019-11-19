@@ -30,6 +30,11 @@ if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
     # set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
     # set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
+    set(WINDOWS ON)
+elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
+    set(LINUX ON)
 endif()
 
 
@@ -46,6 +51,10 @@ set(DASM_ARCH)
 set(DASM_AFLAGS)
 set(LJ_VM lj_vm.obj)
 set(LJVM_MODE elfasm)
+
+set(TARGET_LJARCH)
+set(TARGET_ARCH)
+
 if(MSVC)
     add_definitions(
         /D_CRT_SECURE_NO_DEPRECATE
@@ -79,45 +88,64 @@ if(MSVC)
     set(LJVM_MODE peobj)
 endif()
 
-if(ANDROID)
+if(ANDROID OR LINUX)
 
-    if("${ANDROID_ABI}" MATCHES "armeabi.*")
-        set(DASM_ARCH arm)
-    elseif("${ANDROID_ABI}" STREQUAL "arm64-v8a")
-        set(DASM_ARCH arm64)
-    elseif("${ANDROID_ABI}" STREQUAL "x86")
-        set(DASM_ARCH x86)
-        set(CMAKE_C_FLAGS -march=i686 -msse -msse2 -mfpmath=sse)
-    elseif("${ANDROID_ABI}" STREQUAL "x86_64")
-        set(DASM_ARCH x64)
+    if(ANDROID)
+        if("${ANDROID_ABI}" MATCHES "armeabi.*")
+            set(DASM_ARCH arm)
+        elseif("${ANDROID_ABI}" STREQUAL "arm64-v8a")
+            set(DASM_ARCH arm64)
+        elseif("${ANDROID_ABI}" STREQUAL "x86")
+            set(DASM_ARCH x86)
+            set(CMAKE_C_FLAGS -march=i686 -msse -msse2 -mfpmath=sse)
+        elseif("${ANDROID_ABI}" STREQUAL "x86_64")
+            set(DASM_ARCH x64)
+        else()
+            message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
+        endif()
     else()
-        message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
+        # set(DASM_ARCH x86)
+        # list(APPEND TARGET_ARCH "-m32")
+
+        set(DASM_ARCH x64)
+
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
     set(default_flags ${CMAKE_C_FLAGS})
     separate_arguments(default_flags)
-    execute_process(COMMAND ${CMAKE_C_COMPILER} 
-        ${default_flags}
-        --target=${CMAKE_C_COMPILER_TARGET}
-        --gcc-toolchain=${ANDROID_TOOLCHAIN_ROOT}
-        -D_FILE_OFFSET_BITS=64 
-        -D_LARGETFILE_SOURCE 
-        -U_FORTIFY_SOURCE 
-        -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h 
-        -dM
-        #-arch armeabi-v7a
-        #-march=${ANDROID_ABI}
-        -mfloat-abi=softfp -Wl,--fix-cortex-a8
-        OUTPUT_VARIABLE TARGET_TESTARCH
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
+    if(ANDROID)
+        execute_process(COMMAND ${CMAKE_C_COMPILER}
+            ${default_flags}
+            --target=${CMAKE_C_COMPILER_TARGET}
+            --gcc-toolchain=${ANDROID_TOOLCHAIN_ROOT}
+            -D_FILE_OFFSET_BITS=64
+            -D_LARGETFILE_SOURCE
+            -U_FORTIFY_SOURCE
+            -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
+            -dM
+            #-arch armeabi-v7a
+            #-march=${ANDROID_ABI}
+            -mfloat-abi=softfp -Wl,--fix-cortex-a8
+            OUTPUT_VARIABLE TARGET_TESTARCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+    else()
+        execute_process(COMMAND ${CMAKE_C_COMPILER}
+            ${default_flags}
+           -D_FILE_OFFSET_BITS=64
+            -D_LARGETFILE_SOURCE
+            -U_FORTIFY_SOURCE
+            -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
+            -dM
+            OUTPUT_VARIABLE TARGET_TESTARCH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+    endif()
     #message(WARNING "TARGET_TESTARCH: ${TARGET_TESTARCH}")
-    file(WRITE "C:/Projects/output.txt" ${TARGET_TESTARCH})
+    #file(WRITE "C:/Projects/output.txt" ${TARGET_TESTARCH})
 
 
-    set(TARGET_LJARCH)
-    set(TARGET_ARCH)
 
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_X64 " fpos)
     if(${fpos} GREATER -1)
@@ -137,10 +165,10 @@ if(ANDROID)
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_ARM64 " fpos)
     if(${fpos} GREATER -1)
         set(TARGET_LJARCH arm64)
-        set(TARGET_ARCH "${TARGET_ARCH} -D__AARCH64EB__=1")
+        list(APPEND TARGET_ARCH "-D__AARCH64EB__=1")
     endif()
 
-    set(TARGET_ARCH "${TARGET_ARCH} -DLUAJIT_TARGET=LUAJIT_ARCH_${TARGET_LJARCH}")
+    list(APPEND TARGET_ARCH "-DLUAJIT_TARGET=LUAJIT_ARCH_${TARGET_LJARCH}")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DDLUAJIT_OS_LINUX")
 
     string(FIND "${TARGET_TESTARCH}" "LJ_LE 1" fpos)
@@ -173,23 +201,23 @@ if(ANDROID)
     string(FIND "${TARGET_TESTARCH}" "LJ_ARCH_HASFPU 1" fpos)
     if(${fpos} GREATER -1)
         list(APPEND DASM_AFLAGS -D FPU)
-        set(TARGET_ARCH "${TARGET_ARCH} -DLJ_ARCH_HASFPU=1")
+        list(APPEND TARGET_ARCH "-DLJ_ARCH_HASFPU=1")
     else()
-        set(TARGET_ARCH "${TARGET_ARCH} -DLJ_ARCH_HASFPU=0")
+        list(APPEND TARGET_ARCH "-DLJ_ARCH_HASFPU=0")
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_ABI_SOFTFP 1" fpos)
     if(${fpos} GREATER -1)
-        set(TARGET_ARCH "${TARGET_ARCH} -DLJ_ABI_SOFTFP=1")
+        list(APPEND TARGET_ARCH "-DLJ_ABI_SOFTFP=1")
     else()
         list(APPEND DASM_AFLAGS -D HFABI)
-        set(TARGET_ARCH "${TARGET_ARCH} -LJ_ABI_SOFTFP=0")
+        list(APPEND TARGET_ARCH "-DLJ_ABI_SOFTFP=0")
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_NO_UNWIND 1" fpos)
     if(${fpos} GREATER -1)
         list(APPEND DASM_AFLAGS -D LJ_NO_UNWIND)
-        set(TARGET_ARCH "${TARGET_ARCH} -DDLUAJIT_NO_UNWIND")
+        list(APPEND TARGET_ARCH "-DDLUAJIT_NO_UNWIND")
     endif()
 
     string(REGEX MATCH "LJ_ARCH_VERSION [0-9]+" version_string "${TARGET_TESTARCH}")
@@ -199,7 +227,7 @@ if(ANDROID)
         string(SUBSTRING "${version_string}" ${start_index} -1 version_number)
         list(APPEND DASM_AFLAGS -D VER=${version_number})
     endif()
-    
+
     if("${TARGET_LJARCH}" STREQUAL "x64")
         string(FIND "${TARGET_TESTARCH}" "LJ_FR2 1" fpos)
         if(${fpos} GREATER -1)
@@ -221,9 +249,9 @@ set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    COMMAND ${CMAKE_COMMAND} -E echo "DASM_AFLAGS:: ${DASM_AFLAGS}"
-    COMMAND ${MINILUA} ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o 
-        ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h 
+    #COMMAND ${CMAKE_COMMAND} -E echo "DASM_AFLAGS:: ${DASM_AFLAGS}"
+    COMMAND ${MINILUA} ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o
+        ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
         ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
     DEPENDS minilua ${dasm_lua} 
 )
@@ -235,44 +263,48 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 add_custom_target(buildvm 
     #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
     COMMAND ${HOST_CMAKE}
-        -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm 
+        -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/buildvm" 
-        -D CMAKE_C_FLAGS="${TARGET_ARCH}"
+        -D CMAKE_C_FLAGS=${TARGET_ARCH}
         #-Awin32
     COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
 )
 
 
-add_custom_target(minilua 
+add_custom_target(minilua
     #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-    COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
+    COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua
         -G ${HOST_GENERATOR}
-        -B"${CMAKE_BINARY_DIR}/minilua" 
-        -D CMAKE_C_FLAGS="${TARGET_ARCH}"
+        -B"${CMAKE_BINARY_DIR}/minilua"
+        -D CMAKE_C_FLAGS=${TARGET_ARCH}
         -DCMAKE_BUILD_TYPE=Debug
     COMMAND ${HOST_CMAKE} --build "${CMAKE_BINARY_DIR}/minilua"
 )
 
 
-
-
 set(output_dir ${CMAKE_BINARY_DIR}/include)
+if(NOT EXISTS ${CMAKE_BINARY_DIR}/include)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
+endif()
+if(NOT EXISTS ${CMAKE_BINARY_DIR}/include/objs)
+    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include/objs)
+endif()
 #set(output_dir ${CMAKE_CURRENT_LIST_DIR}/src)
 
 set(SRC_HEADERS 
     ${CMAKE_CURRENT_LIST_DIR}/src/lua.h
     ${CMAKE_CURRENT_LIST_DIR}/src/lualib.h
     ${CMAKE_CURRENT_LIST_DIR}/src/lauxlib.h
-    ${CMAKE_CURRENT_LIST_DIR}/src/luaconf.h 
+    ${CMAKE_CURRENT_LIST_DIR}/src/luaconf.h
     ${CMAKE_CURRENT_LIST_DIR}/src/lua.hpp
     ${CMAKE_CURRENT_LIST_DIR}/src/luajit.h
 )
 
 set(LBLIB_SC
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_base.c 
-    ${CMAKE_CURRENT_LIST_DIR}/src/lib_math.c 
+    ${CMAKE_CURRENT_LIST_DIR}/src/lib_math.c
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_bit.c 
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_string.c 
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_table.c 
@@ -314,14 +346,14 @@ set_target_properties(${LUA} PROPERTIES
 add_dependencies(${LUA} minilua buildvm)
 
 ### luajit
-# add_executable(luajit 
+# add_executable(luajit
 #     ${CMAKE_CURRENT_LIST_DIR}/src/luajit.c
 # )
 # target_compile_definitions(luajit PRIVATE
 #     _CRT_SECURE_NO_DEPRECATE
 # )
 # target_link_libraries(luajit lua)
-# set_target_properties(luajit PROPERTIES 
+# set_target_properties(luajit PROPERTIES
 #     LINK_FLAGS /SUBSYSTEM:CONSOLE
 # )
 
