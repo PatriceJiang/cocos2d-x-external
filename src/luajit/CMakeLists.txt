@@ -2,69 +2,27 @@
 
 project(luajit C)
 
+## host
+
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(HOST_GENERATOR "Visual Studio 15 2017")
     #set(HOST_GENERATOR "MinGW Makefiles")
     set(HOST_CMAKE cmake)
+    set(HOST_WINDOWS ON)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Unix Makefiles")
-    #set(HOST_GENERATOR "Xcode")
     set(HOST_CMAKE cmake)
-    execute_process(COMMAND xcrun --sdk macosx --show-sdk-path
-        OUTPUT_VARIABLE sdk_path 
-    )
-    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin )#-DCMAKE_OSX_SYSROOT=${sdk_path})
+    set(HOST_APPLE ON)
+    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
+    set(HOST_LINUX ON)
 else()
     message(FATAL_ERROR "Unsupport platform \"${CMAKE_HOST_SYSTEM_NAME}\"")
 endif()
 
-
-
-if(WIN32)
-set(BUILD_LUA_STATIC OFF)
-else()
-set(BUILD_LUA_STATIC ON)
-endif()
-
-
-if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
-    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
-    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
-    # set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua.exe)
-    # set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm.exe)
-    set(HOST_WINDOWS ON)
-elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
-    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
-    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
-    set(HOST_LINUX ON)
-elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
-    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
-    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
-    set(HOST_APPLE ON)
-endif()
-
-
-
-### buildvm
-
-message(STATUS "target CMAKE_SYSTEM_PROCESSOR: 
-    ${CMAKE_SYSTEM_PROCESSOR}
-    CMAKE_GENERATOR_PLATFORM : ${CMAKE_GENERATOR_PLATFORM}
-    CMAKE_SYSTEM_NAME : ${CMAKE_SYSTEM_NAME}
-    ")
-
-set(DASM_ARCH)
-set(DASM_AFLAGS)
-#set(HOST_CFLAGS)
-set(LJ_VM lj_vm.obj)
-set(LJVM_MODE elfasm)
-
-set(TARGET_LJARCH)
-set(TARGET_ARCH)
-
+## target
 
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Darwin")
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OSX)
@@ -86,6 +44,30 @@ else()
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OTHER)
 endif()
 
+
+if(WIN32)
+    set(BUILD_LUA_STATIC OFF)
+else()
+    set(BUILD_LUA_STATIC ON)
+endif()
+
+if(HOST_WINDOWS)
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/Debug/minilua.exe)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/Debug/buildvm.exe)
+else()
+    set(MINILUA ${CMAKE_BINARY_DIR}/minilua/minilua)
+    set(BUILDVM ${CMAKE_BINARY_DIR}/buildvm/buildvm)
+endif()
+
+
+set(DASM_ARCH)
+set(DASM_AFLAGS)
+#set(HOST_CFLAGS)
+set(LJ_VM lj_vm.obj)
+set(LJVM_MODE elfasm)
+set(TARGET_LJARCH)
+set(TARGET_ARCH)
+set(default_flags ${CMAKE_C_FLAGS})
 
 if(MSVC)
     add_definitions(
@@ -122,7 +104,6 @@ endif()
 
 if(ANDROID OR HOST_LINUX OR HOST_APPLE)
 
-    set(default_flags ${CMAKE_C_FLAGS})
 
     if(ANDROID)
         if("${ANDROID_ABI}" MATCHES "armeabi.*")
@@ -210,9 +191,10 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     else()
         message(FATAL_ERROR "Dont know which platform")
     endif()
+
     #message(WARNING "TARGET_TESTARCH: ${TARGET_TESTARCH}")
     #file(WRITE "C:/Projects/output.txt" ${TARGET_TESTARCH})
-    file(WRITE "/Users/cocos/Projects/output.txt" ${TARGET_TESTARCH})
+    # file(WRITE "/Users/cocos/Projects/output.txt" ${TARGET_TESTARCH})
 
     if("${TARGET_TESTARCH}" STREQUAL "")
         message(FATAL_ERROR "Failed to exec ")
@@ -328,68 +310,91 @@ set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    #COMMAND ${CMAKE_COMMAND} -E echo "DASM_AFLAGS:: ${DASM_AFLAGS}"
     COMMAND ${MINILUA} ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o
         ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
         ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
     DEPENDS minilua ${dasm_lua} 
 )
 
-#if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
-#    string(REGEX REPLACE "-D" "/D" TARGET_ARCH "${TARGET_ARCH}")
-#endif()
+if(HOST_WINDOWS)
+    string(REGEX REPLACE "-D" "/D" TARGET_ARCH "${TARGET_ARCH}")
+endif()
 
 list(APPEND HOST_CFLAGS ${TARGET_ARCH})
-add_custom_target(buildvm 
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
-    COMMAND ${HOST_CMAKE}
-        -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm
-        -G ${HOST_GENERATOR}
-        -B"${CMAKE_BINARY_DIR}/buildvm" 
-        -D CMAKE_C_FLAGS="${HOST_CFLAGS}"
-        ${HOST_SYSTEM_NAME}
-        #-Awin32
-    COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
-    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+
+
 )
 
-set(flags "${HOST_CFLAGS}")
-string(REPLACE ";" " " flags "${flags}")
-#list(APPEND HOST_CFLAGS -target i386-apple-darwin-unknown)
-
-set(COMMAND_STRING 
-"#!/bin/bash
-set -x
-${HOST_CMAKE} -S \"${CMAKE_CURRENT_LIST_DIR}/src/minilua\" \
-    -G \"${HOST_GENERATOR}\" \
-    -B\"${CMAKE_BINARY_DIR}/minilua\" \
-    -DCMAKE_BUILD_TYPE=Debug \
-    -DCMAKE_C_FLAGS=\"${flags}\" \
-    ${HOST_SYSTEM_NAME}
-    "
-)
-file(WRITE ${CMAKE_BINARY_DIR}/compile_minilua.sh "${COMMAND_STRING}")
-message(STATUS "/////////////////////////")
-message(STATUS ${COMMAND_STRING})
+set(host_flags_str "${HOST_CFLAGS}")
+string(REPLACE ";" " " host_flags_str "${host_flags_str}")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/minilua)
-add_custom_target(minilua
-    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-    #COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/minilua
-    #COMMAND ${CMAKE_COMMAND} -E echo "${HOST_SYSTEM_NAME}"
-    # COMMAND env -i bash --login ${CMAKE_BINARY_DIR}/compile_minilua.sh
-              #  -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
-    #COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/minilua"
-    ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
-        -G ${HOST_GENERATOR}
-        -B"${CMAKE_BINARY_DIR}/minilua"
-        -DCMAKE_BUILD_TYPE=Debug 
-        -DCMAKE_C_FLAGS="${HOST_CFLAGS}" 
-        ${HOST_SYSTEM_NAME}
-    COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/minilua
-    USE_TERMINAL
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
-    COMMENT "compiling minilua"
-)
+
+if(HOST_APPLE)
+    set(buildvm_gen_cmd 
+        "${HOST_CMAKE} \
+            -S \"${CMAKE_CURRENT_LIST_DIR}/src/buildvm\"  \
+            -G \"${HOST_GENERATOR}\" \
+            -B\"${CMAKE_BINARY_DIR}/buildvm\"  \
+            -D CMAKE_C_FLAGS=\"${HOST_CFLAGS}\" \
+            ${HOST_SYSTEM_NAME}"
+    )
+    add_custom_target(buildvm 
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
+        COMMAND env -i bash --login -c "${buildvm_gen_cmd}"
+        COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/buildvm"
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+        USE_TERMINAL
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm
+        COMMENT "Compiling buildvm..."
+    )
+
+    set(minilua_gen_cmd 
+    "${HOST_CMAKE} -S \"${CMAKE_CURRENT_LIST_DIR}/src/minilua\" \
+        -G \"${HOST_GENERATOR}\" \
+        -B\"${CMAKE_BINARY_DIR}/minilua\" \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_C_FLAGS=\"${host_flags_str}\" \
+        ${HOST_SYSTEM_NAME}"
+    )
+
+    add_custom_target(minilua
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+        COMMAND env -i bash --login -c "${minilua_gen_cmd}"
+        COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/minilua"
+        USE_TERMINAL
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
+        COMMENT "Compiling minilua..."
+    )
+else()
+    add_custom_target(buildvm 
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
+        COMMAND ${HOST_CMAKE}
+            -S ${CMAKE_CURRENT_LIST_DIR}/src/buildvm
+            -G ${HOST_GENERATOR}
+            -B"${CMAKE_BINARY_DIR}/buildvm" 
+            -D CMAKE_C_FLAGS="${HOST_CFLAGS}"
+            ${HOST_SYSTEM_NAME}
+            #-Awin32
+        COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
+        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+        USE_TERMINAL
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm
+        COMMENT "Compiling buildvm..."
+    )
+    add_custom_target(minilua
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+        COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
+            -G ${HOST_GENERATOR}
+            -B"${CMAKE_BINARY_DIR}/minilua"
+            -DCMAKE_BUILD_TYPE=Debug 
+            -DCMAKE_C_FLAGS="${HOST_CFLAGS}" 
+            ${HOST_SYSTEM_NAME}
+        COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/minilua
+        USE_TERMINAL
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
+        COMMENT "Compiling minilua..."
+    )
+endif()
 
 
 set(output_dir ${CMAKE_BINARY_DIR}/include)
@@ -399,7 +404,6 @@ endif()
 if(NOT EXISTS ${CMAKE_BINARY_DIR}/include/objs)
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include/objs)
 endif()
-#set(output_dir ${CMAKE_CURRENT_LIST_DIR}/src)
 
 set(SRC_HEADERS 
     ${CMAKE_CURRENT_LIST_DIR}/src/lua.h
@@ -424,9 +428,6 @@ set(LBLIB_SC
     ${CMAKE_CURRENT_LIST_DIR}/src/lib_ffi.c
 )
 
-
-
-
 ### lua
 file(GLOB lua_src src/lj_*.c src/lib_*.c)
 set(LUA luajit)
@@ -441,7 +442,6 @@ else()
     target_compile_definitions(${LUA} PUBLIC
         LUA_BUILD_AS_DLL
     )
-
 endif()
 
 target_include_directories(${LUA} PRIVATE
@@ -452,18 +452,6 @@ set_target_properties(${LUA} PROPERTIES
 )
 
 add_dependencies(${LUA} minilua buildvm)
-
-### luajit
-# add_executable(luajit
-#     ${CMAKE_CURRENT_LIST_DIR}/src/luajit.c
-# )
-# target_compile_definitions(luajit PRIVATE
-#     _CRT_SECURE_NO_DEPRECATE
-# )
-# target_link_libraries(luajit lua)
-# set_target_properties(luajit PROPERTIES
-#     LINK_FLAGS /SUBSYSTEM:CONSOLE
-# )
 
 ### generate headers 
 function(buildvm_generate)
