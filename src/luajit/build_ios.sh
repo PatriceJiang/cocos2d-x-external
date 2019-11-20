@@ -11,7 +11,9 @@ cmake  \
 -B${LUAJIT_ROOT}/ios-build \
 -GXcode \
 -DCMAKE_SYSTEM_NAME=iOS \
--DCMAKE_OSX_ARCHITECTURES="arm64"
+-DCMAKE_OSX_ARCHITECTURES="armv7" \
+-DCMAKE_C_FLAGS="-miphoneos-version-min=8.0" \
+-DCMAKE_OSX_DEPLOYMENT_TARGET=9.3
 
 
 ## armv7;armv7s;arm64;i386;x86_64

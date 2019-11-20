@@ -8,11 +8,12 @@ if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(HOST_CMAKE cmake)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Unix Makefiles")
+    #set(HOST_GENERATOR "Xcode")
     set(HOST_CMAKE cmake)
     execute_process(COMMAND xcrun --sdk macosx --show-sdk-path
         OUTPUT_VARIABLE sdk_path 
     )
-    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_OSX_SYSROOT=${sdk_path})
+    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin )#-DCMAKE_OSX_SYSROOT=${sdk_path})
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
@@ -149,9 +150,15 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
         list(APPEND default_flags "-m32")
         set(LJVM_MODE machasm)
     elseif(TARGET_IOS)
-        set(DASM_ARCH arm64)
         set(LJVM_MODE machasm)
-        list(APPEND default_flags -m -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
+        #set(DASM_ARCH arm64)
+        #list(APPEND default_flags -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
+        list(APPEND CMAKE_C_FLAGS -miphoneos-version-min=8.0)
+        set(DASM_ARCH arm)
+        list(APPEND default_flags -m32 ) 
+        list(APPEND TARGET_ARCH -m32)
+
+        #set(ENV{IPHONEOS_DEPLOYMENT_TARGET} 10.0)
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
@@ -174,16 +181,18 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
         message(STATUS "？？？CMAKE_C_COMPILER: ${CMAKE_C_COMPILER}")
         message(STATUS "？？？IOS_SDK: ${IOS_SDK}")
         message(STATUS "？？？CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "??? CMAKE_OSX_DEVELOPMENT_TARGET: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
 
         execute_process(COMMAND ${CMAKE_C_COMPILER}
             --sysroot ${IOS_SDK}
             -D_FILE_OFFSET_BITS=64
             -D_LARGETFILE_SOURCE
             -U_FORTIFY_SOURCE
-            -arch arm64
+            -arch armv7
             -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
             -dM
             -mfloat-abi=softfp -Wl,--fix-cortex-a8
+           # -m32
             OUTPUT_VARIABLE TARGET_TESTARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
@@ -346,17 +355,40 @@ add_custom_target(buildvm
 
 set(flags "${HOST_CFLAGS}")
 string(REPLACE ";" " " flags "${flags}")
+#list(APPEND HOST_CFLAGS -target i386-apple-darwin-unknown)
 
+set(COMMAND_STRING 
+"#!/bin/bash
+set -x
+${HOST_CMAKE} -S \"${CMAKE_CURRENT_LIST_DIR}/src/minilua\" \
+    -G \"${HOST_GENERATOR}\" \
+    -B\"${CMAKE_BINARY_DIR}/minilua\" \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_C_FLAGS=\"${flags}\" \
+    ${HOST_SYSTEM_NAME}
+    "
+)
+file(WRITE ${CMAKE_BINARY_DIR}/compile_minilua.sh "${COMMAND_STRING}")
+message(STATUS "/////////////////////////")
+message(STATUS ${COMMAND_STRING})
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/minilua)
 add_custom_target(minilua
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+    #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
+    #COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/minilua
     #COMMAND ${CMAKE_COMMAND} -E echo "${HOST_SYSTEM_NAME}"
-     COMMAND ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua
+    # COMMAND env -i bash --login ${CMAKE_BINARY_DIR}/compile_minilua.sh
+              #  -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
+    #COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/minilua"
+    ${HOST_CMAKE} -S ${CMAKE_CURRENT_LIST_DIR}/src/minilua 
         -G ${HOST_GENERATOR}
         -B"${CMAKE_BINARY_DIR}/minilua"
-        -DCMAKE_BUILD_TYPE=Debug
-        -D CMAKE_C_FLAGS="${HOST_CFLAGS}"
+        -DCMAKE_BUILD_TYPE=Debug 
+        -DCMAKE_C_FLAGS="${HOST_CFLAGS}" 
         ${HOST_SYSTEM_NAME}
-    COMMAND ${HOST_CMAKE} --build "${CMAKE_BINARY_DIR}/minilua"
+    COMMAND ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/minilua
+    USE_TERMINAL
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
+    COMMENT "compiling minilua"
 )
 
 
