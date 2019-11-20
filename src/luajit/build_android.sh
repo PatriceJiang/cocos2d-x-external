@@ -13,7 +13,7 @@ $CMAKE_DIR/cmake  \
 -H${LUAJIT_ROOT} \
 -B${LUAJIT_ROOT}/android-build \
 -GNinja \
--DANDROID_ABI=arm64-v8a \
+-DANDROID_ABI=x86 \
 -DLUAJIT_HOST_GENERATOR="MinGW Makefiles" \
 -DLUAJIT_MinGW64_PATH=$MinGW64 \
 -DANDROID_NDK=$NDK_ROOT \

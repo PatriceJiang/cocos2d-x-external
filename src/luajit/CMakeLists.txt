@@ -106,7 +106,8 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
             set(DASM_ARCH arm64)
         elseif("${ANDROID_ABI}" STREQUAL "x86")
             set(DASM_ARCH x86)
-            set(CMAKE_C_FLAGS -march=i686 -msse -msse2 -mfpmath=sse)
+            #set(CMAKE_C_FLAGS -march=i686 -msse -msse2 -mfpmath=sse)
+            list(APPEND HOST_CFLAGS -march=i686 -msse -msse2 -mfpmath=sse)
         elseif("${ANDROID_ABI}" STREQUAL "x86_64")
             set(DASM_ARCH x64)
         else()
@@ -293,9 +294,7 @@ if(HOST_WINDOWS AND NOT TARGET_WINDOWS)
         set(HOST_GENERATOR "MinGW Makefiles")
     endif()
     if(TARGET64 AND NOT LUAJIT_MinGW64_PATH)
-        message(FATAL_ERROR "LUAJIT_MinGW64_PATH is Not set")
-    else()
-        #set($ENV{PATH} "${LUAJIT_MinGW64_PATH}:$ENV{PATH}")
+        message(FATAL_ERROR "Please set LUAJIT_MinGW64_PATH to locate gcc.exe")
     endif()
 else()
     set(HOST_GENERATOR "${CMAKE_GENERATOR}")
@@ -382,22 +381,21 @@ if(HOST_APPLE)
         COMMENT "Compiling minilua..."
     )
 else()
-    set(new_path ${LUAJIT_MinGW64_PATH})
-    set(old_path $ENV{Path})
-    foreach(x ${old_path})
-        set(new_path "${new_path}\;${x}")
-        message(STATUS "Iterate path component ${x}")
-    endforeach()
+    if(TARGET64 AND LUAJIT_MinGW64_PATH)
+        set(SETUP_ENV ${CMAKE_COMMAND} -E env PATH="${LUAJIT_MinGW64_PATH}")
+    else()
+        set(SETUP_ENV)
+    endif()
     add_custom_target(buildvm 
         #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
-        COMMAND ${CMAKE_COMMAND} -E env PATH="${LUAJIT_MinGW64_PATH}"
+        COMMAND ${SETUP_ENV}
              ${HOST_CMAKE}
             -S "${CMAKE_CURRENT_LIST_DIR}/src/buildvm"
             -G "${HOST_GENERATOR}"
             -B"${CMAKE_BINARY_DIR}/buildvm" 
             -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
             ${HOST_SYSTEM_NAME}
-        COMMAND ${CMAKE_COMMAND} -E env PATH="${new_path}" 
+        COMMAND ${SETUP_ENV}
             ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
         DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm
@@ -406,7 +404,7 @@ else()
     add_custom_target(minilua
         #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
         #COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/minilua
-        COMMAND ${CMAKE_COMMAND} -E env PATH="${LUAJIT_MinGW64_PATH}"
+        COMMAND ${SETUP_ENV}
             ${HOST_CMAKE} 
             -S "${CMAKE_CURRENT_LIST_DIR}/src/minilua"
             -G "${HOST_GENERATOR}"
@@ -414,7 +412,7 @@ else()
             -DCMAKE_BUILD_TYPE=Debug 
             -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
             ${HOST_SYSTEM_NAME}
-        COMMAND ${CMAKE_COMMAND} -E env PATH="${new_path}" 
+        COMMAND ${SETUP_ENV}
             ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/minilua
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
         COMMENT "Compiling minilua..."
