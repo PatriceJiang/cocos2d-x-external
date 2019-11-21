@@ -3,11 +3,26 @@ cmake_minimum_required(VERSION 3.6)
 project(luajit C)
 
 set(TARGET64 OFF)
+set(CLEAN_GENEARTED_FILES ON)
+set(BUILD_WIN32 OFF)
+set(BUILD_WIN64 ON)
+set(DASM_ARCH)
+set(DASM_AFLAGS)
+set(LJ_VM lj_vm.obj)
+set(LJVM_MODE elfasm)
+set(TARGET_LJARCH)
+set(TARGET_ARCH)
+set(OVERRIDE_HOST_CFLAGS ${CMAKE_C_FLAGS})
+
+if(WIN32)
+    set(BUILD_LUA_STATIC OFF)
+else()
+    set(BUILD_LUA_STATIC ON)
+endif()
 
 ## host
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     set(HOST_GENERATOR "Visual Studio 16 2019")
-    #set(HOST_GENERATOR "MinGW Makefiles")
     set(HOST_CMAKE cmake)
     set(HOST_WINDOWS ON)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
@@ -45,22 +60,7 @@ else()
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OTHER)
 endif()
 
-
-if(WIN32)
-    set(BUILD_LUA_STATIC OFF)
-else()
-    set(BUILD_LUA_STATIC ON)
-endif()
-
-
-set(DASM_ARCH)
-set(DASM_AFLAGS)
-#set(HOST_CFLAGS)
-set(LJ_VM lj_vm.obj)
-set(LJVM_MODE elfasm)
-set(TARGET_LJARCH)
-set(TARGET_ARCH)
-set(default_flags ${CMAKE_C_FLAGS})
+    
 
 if(MSVC)
     add_definitions(
@@ -68,16 +68,18 @@ if(MSVC)
         /D_CRT_SECURE_NO_WARNINGS
         "/D_CRT_STDIO_INLINE=__declspec(dllexport)__inline"
     )
+
     string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" win_platform)
-    if("${win_platform}" STREQUAL "win32")
+    string(REGEX MATCH "Visual Studio ([0123456789]+) ([0123456789]+) ?(.*)?" vs_version "${CMAKE_GENERATOR}")
+    set(VS_VERSION ${CMAKE_MATCH_2})
+    set(VS_ARCH ${CMAKE_MATCH_3})
+    if("${win_platform}" STREQUAL "win32" OR ( ${VS_VERSION} LESS 2019 AND "${VS_ARCH}" STREQUAL "") )
         set(BUILD_WIN32 ON)
-    else()
-        set(BUILD_WIN64 ON)
+        set(BUILD_WIN64 OFF)
     endif()
 
     if(BUILD_WIN32)
-        set(CMAKE_C_FLAGS  /arch:SSE2)
-        set(CMAKE_CXX_FLAGS  /arch:SSE2)
+        list(APPEND OVERRIDE_HOST_CFLAGS  /arch:SSE2)
     else()
         add_definitions(/DLUAJIT_ENABLE_GC64)
     endif()
@@ -123,25 +125,25 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
        # set(DASM_ARCH x64)
 
         set(DASM_ARCH x86)
-        list(APPEND default_flags "-m32")
+        list(APPEND OVERRIDE_HOST_CFLAGS "-m32")
         set(LJVM_MODE machasm)
     elseif(TARGET_IOS)
         set(LJVM_MODE machasm)
         #set(DASM_ARCH arm64)
-        #list(APPEND default_flags -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
+        #list(APPEND OVERRIDE_HOST_CFLAGS -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
         list(APPEND CMAKE_C_FLAGS -miphoneos-version-min=8.0)
         set(DASM_ARCH arm)
-        list(APPEND default_flags -m32 ) 
+        list(APPEND OVERRIDE_HOST_CFLAGS -m32 ) 
         list(APPEND TARGET_ARCH -m32)
 
         #set(ENV{IPHONEOS_DEPLOYMENT_TARGET} 10.0)
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
-    separate_arguments(default_flags)
+    separate_arguments(OVERRIDE_HOST_CFLAGS)
     if(ANDROID)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
-            ${default_flags}
+            ${OVERRIDE_HOST_CFLAGS}
             --target=${CMAKE_C_COMPILER_TARGET}
             --gcc-toolchain=${ANDROID_TOOLCHAIN_ROOT}
             -D_FILE_OFFSET_BITS=64
@@ -163,13 +165,12 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
             -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
             -dM
             -mfloat-abi=softfp -Wl,--fix-cortex-a8
-           # -m32
             OUTPUT_VARIABLE TARGET_TESTARCH
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
     elseif(HOST_LINUX OR HOST_APPLE)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
-            ${default_flags}
+            ${OVERRIDE_HOST_CFLAGS}
            -D_FILE_OFFSET_BITS=64
             -D_LARGETFILE_SOURCE
             -U_FORTIFY_SOURCE
@@ -185,7 +186,6 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     if("${TARGET_TESTARCH}" STREQUAL "")
         message(FATAL_ERROR "Failed to exec ")
     endif()
-
 
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_X64 " fpos)
     if(${fpos} GREATER -1)
@@ -304,6 +304,7 @@ else()
 endif()
 
 
+
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
 file(GLOB dasm_lua ${dynasm_dir}/*.lua)
 
@@ -324,10 +325,6 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
     DEPENDS minilua ${dasm_lua} 
 )
 
-#if(TARGET_WINDOWS )
-#    string(REGEX REPLACE "-D" "/D" TARGET_ARCH "${TARGET_ARCH}")
-#endif()
-
 list(APPEND HOST_CFLAGS ${TARGET_ARCH})
 
 message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
@@ -340,87 +337,82 @@ message(STATUS "CMAKE_GENERATOR_TOOLSET: ${CMAKE_GENERATOR_TOOLSET}")
 message(STATUS "CMAKE_GENERATOR: ${CMAKE_GENERATOR}")
 
 
-set(host_flags_str "${HOST_CFLAGS}")
-string(REPLACE ";" " " host_flags_str "${host_flags_str}")
-
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/minilua)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm)
 
-if(HOST_APPLE)
-    set(buildvm_gen_cmd 
-        "${HOST_CMAKE} \
-            -S \"${CMAKE_CURRENT_LIST_DIR}/src/buildvm\"  \
-            -G \"${HOST_GENERATOR}\" \
-            -B\"${CMAKE_BINARY_DIR}/buildvm\"  \
-            -D CMAKE_C_FLAGS=\"${HOST_CFLAGS}\" \
-            ${HOST_SYSTEM_NAME}"
-    )
-    add_custom_target(buildvm 
-        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
-        COMMAND env -i bash --login -c "${buildvm_gen_cmd}"
-        COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/buildvm"
-        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm
-        COMMENT "Compiling buildvm..."
-    )
-
-    set(minilua_gen_cmd 
-    "${HOST_CMAKE} -S \"${CMAKE_CURRENT_LIST_DIR}/src/minilua\" \
-        -G \"${HOST_GENERATOR}\" \
-        -B\"${CMAKE_BINARY_DIR}/minilua\" \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DCMAKE_C_FLAGS=\"${host_flags_str}\" \
-        ${HOST_SYSTEM_NAME}"
-    )
-
-    add_custom_target(minilua
-        COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-        COMMAND env -i bash --login -c "${minilua_gen_cmd}"
-        COMMAND env -i bash --login -c "make -C ${CMAKE_BINARY_DIR}/minilua"
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
-        COMMENT "Compiling minilua..."
-    )
-else()
-    if(TARGET64 AND LUAJIT_MinGW64_PATH)
-        set(SETUP_ENV ${CMAKE_COMMAND} -E env PATH="${LUAJIT_MinGW64_PATH}")
-    else()
-        set(SETUP_ENV)
-    endif()
-    add_custom_target(buildvm 
-        #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
-        COMMAND ${SETUP_ENV}
-             ${HOST_CMAKE}
-            -S "${CMAKE_CURRENT_LIST_DIR}/src/buildvm"
-            -G "${HOST_GENERATOR}"
-            -B"${CMAKE_BINARY_DIR}/buildvm" 
-            -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
-            ${HOST_SYSTEM_NAME}
-        COMMAND ${SETUP_ENV}
-            ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/buildvm
-        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm
-        COMMENT "Compiling buildvm..."
-    )
-    add_custom_target(minilua
-        #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/minilua
-        #COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/minilua
-        COMMAND ${SETUP_ENV}
-            ${HOST_CMAKE} 
-            -S "${CMAKE_CURRENT_LIST_DIR}/src/minilua"
-            -G "${HOST_GENERATOR}"
-            -B"${CMAKE_BINARY_DIR}/minilua"
-            -DCMAKE_BUILD_TYPE=Debug 
-            -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
-            ${HOST_SYSTEM_NAME}
-        COMMAND ${SETUP_ENV}
-            ${HOST_CMAKE} --build ${CMAKE_BINARY_DIR}/minilua
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/minilua
-        COMMENT "Compiling minilua..."
-    )
+if(TARGET64)
+    list(APPEND OVERRIDE_HOST_CFLAGS -DLUAJIT_ENABLE_GC64)
 endif()
 
+function(build_host_target)
+    set(oneValueArgs TARGET TARGET_DIR COMMENT NEW_PATH)
+    set(multiValueArgs COMMANDS DEPENDS)
+    cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    set(COMMAND_STR)
+    foreach(i ${COMMANDS})
+        set(COMMAND_STR "${COMMAND_STR} ${i}")
+    endforeach()
 
-set(output_dir ${CMAKE_BINARY_DIR}/include)
+    if(HOST_APPLE)
+        add_custom_target(${opt_TARGET} 
+            #COMMAND ${CMAKE_COMMAND} -E remove_directory ${opt_TARGET_DIR}
+            COMMAND env -i bash --login -c "${COMMAND_STR}"
+            COMMAND env -i bash --login -c "make -C ${opt_TARGET_DIR}"
+            DEPENDS ${opt_DEPENDS}
+            WORKING_DIRECTORY ${opt_TARGET_DIR}
+            COMMENT ${opt_COMMENT}
+        )
+    else()
+        set(SETUP_ENV)
+        if(opt_NEW_PATH AND NOT "${opt_NEW_PATH}" STREQUAL "")
+            set(SETUP_ENV ${CMAKE_COMMAND} -E env PATH="${opt_NEW_PATH}")
+        endif()
+
+        add_custom_target(${opt_TARGET}  
+            #COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_BINARY_DIR}/buildvm
+            COMMAND ${SETUP_ENV}
+                    ${opt_COMMANDS}
+            COMMAND ${SETUP_ENV}
+                ${HOST_CMAKE} --build "${opt_TARGET_DIR}"
+            DEPENDS ${opt_DEPENDS}
+            WORKING_DIRECTORY ${opt_TARGET_DIR}
+            COMMENT ${opt_COMMENT}
+        )
+    endif()
+endfunction()
+
+if(HOST_WINDOWS AND NOT TARGET_WINDOWS AND TARGET64)
+    set(OVERRIDE_PATH ${LUAJIT_MinGW64_PATH})
+endif()
+
+build_host_target(TARGET buildvm 
+    TARGET_DIR  ${CMAKE_BINARY_DIR}/buildvm 
+    NEW_PATH    ${OVERRIDE_PATH}
+    COMMENT     "Compiling buildvm..."
+    COMMANDS    ${HOST_CMAKE}
+                -S "${CMAKE_CURRENT_LIST_DIR}/src/buildvm"
+                -G "${HOST_GENERATOR}"
+                -B"${CMAKE_BINARY_DIR}/buildvm" 
+                -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
+                ${HOST_SYSTEM_NAME}
+    DEPENDS     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+)
+
+build_host_target(TARGET minilua 
+    TARGET_DIR  ${CMAKE_BINARY_DIR}/minilua 
+    NEW_PATH    ${OVERRIDE_PATH}
+    COMMENT     "Compiling minilua..."
+    COMMANDS    ${HOST_CMAKE}
+                -S "${CMAKE_CURRENT_LIST_DIR}/src/minilua"
+                -G "${HOST_GENERATOR}"
+                -B"${CMAKE_BINARY_DIR}/minilua" 
+                -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
+                ${HOST_SYSTEM_NAME}
+)
+    
+
+
+set(GENERATE_DIR ${CMAKE_BINARY_DIR}/include)
 if(NOT EXISTS ${CMAKE_BINARY_DIR}/include)
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include)
 endif()
@@ -428,7 +420,7 @@ if(NOT EXISTS ${CMAKE_BINARY_DIR}/include/objs)
     file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/include/objs)
 endif()
 
-set(SRC_HEADERS 
+set(EXPORT_HEADERS 
     ${CMAKE_CURRENT_LIST_DIR}/src/lua.h
     ${CMAKE_CURRENT_LIST_DIR}/src/lualib.h
     ${CMAKE_CURRENT_LIST_DIR}/src/lauxlib.h
@@ -468,11 +460,15 @@ else()
 endif()
 
 target_include_directories(${LUA} PRIVATE
-    ${output_dir}
+    ${GENERATE_DIR}
 )
 set_target_properties(${LUA} PROPERTIES  
-    PUBLIC_HEADER "${SRC_HEADERS}"
+    PUBLIC_HEADER "${EXPORT_HEADERS}"
 )
+
+if(TARGET64)
+    target_compile_definitions(${LUA} PRIVATE LUAJIT_ENABLE_GC64)
+endif()
 
 add_dependencies(${LUA} minilua buildvm)
 
@@ -486,20 +482,22 @@ function(buildvm_generate)
         DEPENDS ${opt_DEPENDS}
     )
     target_sources(${LUA} PRIVATE ${opt_OUTPUT})
-    add_custom_command(TARGET ${LUA} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${opt_OUTPUT}"
-        COMMAND ${CMAKE_COMMAND} -E remove -f ${opt_OUTPUT}
-    )
+    if(CLEAN_GENEARTED_FILES)
+        add_custom_command(TARGET ${LUA} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${opt_OUTPUT}"
+            COMMAND ${CMAKE_COMMAND} -E remove -f ${opt_OUTPUT}
+        )
+    endif()
 endfunction()
 
 
-buildvm_generate(OUTPUT ${output_dir}/objs/${LJ_VM} DEF ${LJVM_MODE})
-buildvm_generate(OUTPUT ${output_dir}/lj_bcdef.h DEF bcdef DEPENDS ${LBLIB_SC})
-buildvm_generate(OUTPUT ${output_dir}/lj_ffdef.h DEF ffdef DEPENDS ${LBLIB_SC})
-buildvm_generate(OUTPUT ${output_dir}/lj_libdef.h DEF libdef DEPENDS ${LBLIB_SC})
-buildvm_generate(OUTPUT ${output_dir}/lj_recdef.h DEF recdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${GENERATE_DIR}/objs/${LJ_VM} DEF ${LJVM_MODE})
+buildvm_generate(OUTPUT ${GENERATE_DIR}/lj_bcdef.h DEF bcdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${GENERATE_DIR}/lj_ffdef.h DEF ffdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${GENERATE_DIR}/lj_libdef.h DEF libdef DEPENDS ${LBLIB_SC})
+buildvm_generate(OUTPUT ${GENERATE_DIR}/lj_recdef.h DEF recdef DEPENDS ${LBLIB_SC})
 buildvm_generate(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/jit/vmdef.lua DEF vmdef DEPENDS ${LBLIB_SC})
-buildvm_generate(OUTPUT ${output_dir}/lj_folddef.h DEF folddef DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
+buildvm_generate(OUTPUT ${GENERATE_DIR}/lj_folddef.h DEF folddef DEPENDS ${CMAKE_CURRENT_LIST_DIR}/src/lj_opt_fold.c)
 
 install(TARGETS ${LUA}
     ARCHIVE DESTINATION lib/

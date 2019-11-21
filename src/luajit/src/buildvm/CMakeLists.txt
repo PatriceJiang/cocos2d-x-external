@@ -23,7 +23,7 @@ if(MSVC)
 endif()
 
 message(STATUS "Current Compiler ${CMAKE_C_COMPILER}")
-message(STATUS "Current Path $ENV{PATH}")
+#message(STATUS "Current Path $ENV{PATH}")
 
 ### minilua
 add_executable(buildvm

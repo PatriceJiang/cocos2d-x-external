@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.6)
 project(minilua C)
 
 message(STATUS "Current Compiler ${CMAKE_C_COMPILER}")
-message(STATUS "Current Path $ENV{PATH}")
+#message(STATUS "Current Path $ENV{PATH}")
 
 if(MSVC)
     add_definitions(
