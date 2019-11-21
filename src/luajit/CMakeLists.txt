@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.6)
 
 project(luajit C)
 
-set(TARGET64 OFF)
-set(CLEAN_GENEARTED_FILES ON)
+set(OPT_CLEAN_GENEARTED_FILES ON)
+set(TARGET_64BIT OFF)
 set(BUILD_WIN32 OFF)
 set(BUILD_WIN64 ON)
 set(DASM_ARCH)
@@ -11,14 +11,15 @@ set(DASM_AFLAGS)
 set(LJ_VM lj_vm.obj)
 set(LJVM_MODE elfasm)
 set(TARGET_LJARCH)
-set(TARGET_ARCH)
-set(OVERRIDE_HOST_CFLAGS ${CMAKE_C_FLAGS})
+set(TARGET_COMPILER_GEN_FLAGS)
+set(TARGET_COMPILER_TEST_CFLAGS ${CMAKE_C_FLAGS})
 
 if(WIN32)
     set(BUILD_LUA_STATIC OFF)
 else()
     set(BUILD_LUA_STATIC ON)
 endif()
+
 
 ## host
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
@@ -29,6 +30,7 @@ elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
     set(HOST_APPLE ON)
+    set(LJVM_MODE machasm)
     set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
@@ -60,7 +62,10 @@ else()
     list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_OTHER)
 endif()
 
-    
+if(HOST_LINUX AND TARGET_LINUX)
+    message(STATUS "LUAJIT_TARGET32: ${LUAJIT_TARGET32}")
+endif()
+
 
 if(MSVC)
     add_definitions(
@@ -79,7 +84,7 @@ if(MSVC)
     endif()
 
     if(BUILD_WIN32)
-        list(APPEND OVERRIDE_HOST_CFLAGS  /arch:SSE2)
+        list(APPEND TARGET_COMPILER_TEST_CFLAGS  /arch:SSE2)
     else()
         add_definitions(/DLUAJIT_ENABLE_GC64)
     endif()
@@ -93,13 +98,12 @@ if(MSVC)
     elseif(BUILD_WIN64)
         set(DASM_AFLAGS -LN -D WIN -D JIT -D FFI -D P64)
         set(DASM_ARCH x64)
-        set(TARGET64 ON)
+        set(TARGET_64BIT ON)
     endif()
     set(LJVM_MODE peobj)
 endif()
 
 if(ANDROID OR HOST_LINUX OR HOST_APPLE)
-
 
     if(ANDROID)
         if("${ANDROID_ABI}" MATCHES "armeabi.*")
@@ -108,7 +112,6 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
             set(DASM_ARCH arm64)
         elseif("${ANDROID_ABI}" STREQUAL "x86")
             set(DASM_ARCH x86)
-            #set(CMAKE_C_FLAGS -march=i686 -msse -msse2 -mfpmath=sse)
             list(APPEND HOST_CFLAGS -march=i686 -msse -msse2 -mfpmath=sse)
         elseif("${ANDROID_ABI}" STREQUAL "x86_64")
             set(DASM_ARCH x64)
@@ -116,34 +119,34 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
             message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
         endif()
     elseif(HOST_LINUX)
-        # set(DASM_ARCH x86)
-        # list(APPEND TARGET_ARCH "-m32")
-
-        set(DASM_ARCH x64)
+        if(NOT LUAJIT_TARGET32)
+            set(DASM_ARCH x64)
+        else()
+            set(DASM_ARCH x86)
+            list(APPEND TARGET_COMPILER_TEST_CFLAGS "-m32")
+        endif()
         list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
     elseif(TARGET_OSX)
        # set(DASM_ARCH x64)
 
         set(DASM_ARCH x86)
-        list(APPEND OVERRIDE_HOST_CFLAGS "-m32")
-        set(LJVM_MODE machasm)
+        list(APPEND TARGET_COMPILER_TEST_CFLAGS "-m32")
     elseif(TARGET_IOS)
-        set(LJVM_MODE machasm)
         #set(DASM_ARCH arm64)
-        #list(APPEND OVERRIDE_HOST_CFLAGS -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
+        #list(APPEND TARGET_COMPILER_TEST_CFLAGS -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
         list(APPEND CMAKE_C_FLAGS -miphoneos-version-min=8.0)
         set(DASM_ARCH arm)
-        list(APPEND OVERRIDE_HOST_CFLAGS -m32 ) 
-        list(APPEND TARGET_ARCH -m32)
+        list(APPEND TARGET_COMPILER_TEST_CFLAGS -m32 )
+        list(APPEND TARGET_COMPILER_GEN_FLAGS -m32)
 
         #set(ENV{IPHONEOS_DEPLOYMENT_TARGET} 10.0)
     endif()
 
     message(STATUS "Compiler: ${CMAKE_C_COMPILER}")
-    separate_arguments(OVERRIDE_HOST_CFLAGS)
+    separate_arguments(TARGET_COMPILER_TEST_CFLAGS)
     if(ANDROID)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
-            ${OVERRIDE_HOST_CFLAGS}
+            ${TARGET_COMPILER_TEST_CFLAGS}
             --target=${CMAKE_C_COMPILER_TARGET}
             --gcc-toolchain=${ANDROID_TOOLCHAIN_ROOT}
             -D_FILE_OFFSET_BITS=64
@@ -170,7 +173,7 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
         )
     elseif(HOST_LINUX OR HOST_APPLE)
         execute_process(COMMAND ${CMAKE_C_COMPILER}
-            ${OVERRIDE_HOST_CFLAGS}
+            ${TARGET_COMPILER_TEST_CFLAGS}
            -D_FILE_OFFSET_BITS=64
             -D_LARGETFILE_SOURCE
             -U_FORTIFY_SOURCE
@@ -190,7 +193,7 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_X64 " fpos)
     if(${fpos} GREATER -1)
         set(TARGET_LJARCH x64)
-        set(TARGET64 ON)
+        set(TARGET_64BIT ON)
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_TARGET_X86 " fpos)
@@ -202,7 +205,7 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     if(${fpos} GREATER -1)
         set(TARGET_LJARCH arm)
         if(TARGET_IOS)
-            list(APPEND TARGET_ARCH -D IOS)
+            list(APPEND TARGET_COMPILER_GEN_FLAGS -D IOS)
         endif()
     endif()
 
@@ -211,12 +214,12 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
         set(TARGET_LJARCH arm64)
         string(FIND "${TARGET_TESTARCH}" "__AARCH64EB__" fpos)
         if(${fpos} GREATER -1)
-            list(APPEND TARGET_ARCH "-D__AARCH64EB__=1")
+            list(APPEND TARGET_COMPILER_GEN_FLAGS "-D__AARCH64EB__=1")
         endif()
-        set(TARGET64 ON)
+        set(TARGET_64BIT ON)
     endif()
 
-    list(APPEND TARGET_ARCH "-DLUAJIT_TARGET=LUAJIT_ARCH_${TARGET_LJARCH}")
+    list(APPEND TARGET_COMPILER_GEN_FLAGS "-DLUAJIT_TARGET=LUAJIT_ARCH_${TARGET_LJARCH}")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DDLUAJIT_OS_LINUX")
 
     string(FIND "${TARGET_TESTARCH}" "LJ_LE 1" fpos)
@@ -249,23 +252,23 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     string(FIND "${TARGET_TESTARCH}" "LJ_ARCH_HASFPU 1" fpos)
     if(${fpos} GREATER -1)
         list(APPEND DASM_AFLAGS -D FPU)
-        list(APPEND TARGET_ARCH "-DLJ_ARCH_HASFPU=1")
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-DLJ_ARCH_HASFPU=1")
     else()
-        list(APPEND TARGET_ARCH "-DLJ_ARCH_HASFPU=0")
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-DLJ_ARCH_HASFPU=0")
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_ABI_SOFTFP 1" fpos)
     if(${fpos} GREATER -1)
-        list(APPEND TARGET_ARCH "-DLJ_ABI_SOFTFP=1")
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-DLJ_ABI_SOFTFP=1")
     else()
         list(APPEND DASM_AFLAGS -D HFABI)
-        list(APPEND TARGET_ARCH "-DLJ_ABI_SOFTFP=0")
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-DLJ_ABI_SOFTFP=0")
     endif()
 
     string(FIND "${TARGET_TESTARCH}" "LJ_NO_UNWIND 1" fpos)
     if(${fpos} GREATER -1)
         list(APPEND DASM_AFLAGS -D LJ_NO_UNWIND)
-        list(APPEND TARGET_ARCH "-DDLUAJIT_NO_UNWIND")
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-DDLUAJIT_NO_UNWIND")
     endif()
 
     string(REGEX MATCH "LJ_ARCH_VERSION [0-9]+" version_string "${TARGET_TESTARCH}")
@@ -284,6 +287,11 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
     endif()
 
     set(LJ_VM lj_vm.S)
+
+    if(NOT TARGET_64BIT)
+        list(APPEND TARGET_COMPILER_GEN_FLAGS "-m32")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -m32")
+    endif()
 endif()
 
 # override HOST_GENERATOR
@@ -293,16 +301,15 @@ if(HOST_WINDOWS AND NOT TARGET_WINDOWS)
     else()
         set(HOST_GENERATOR "MinGW Makefiles")
     endif()
-    if(TARGET64 AND NOT LUAJIT_MinGW64_PATH)
+    if(TARGET_64BIT AND NOT LUAJIT_MinGW64_PATH)
         message(FATAL_ERROR "Please set LUAJIT_MinGW64_PATH to locate gcc.exe")
     endif()
-else()
+elseif(HOST_WINDOWS)
     set(HOST_GENERATOR "${CMAKE_GENERATOR}")
     if(NOT "${CMAKE_GENERATOR_PLATFORM}" STREQUAL "")
         set(HOST_SYSTEM_NAME -A${CMAKE_GENERATOR_PLATFORM} )
     endif()
 endif()
-
 
 
 set(dynasm_dir ${CMAKE_CURRENT_LIST_DIR}/dynasm)
@@ -325,11 +332,17 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
     DEPENDS minilua ${dasm_lua} 
 )
 
-list(APPEND HOST_CFLAGS ${TARGET_ARCH})
+if(TARGET_64BIT)
+    list(APPEND TARGET_COMPILER_GEN_FLAGS -DLUAJIT_ENABLE_GC64)
+endif()
+
+list(REMOVE_DUPLICATES TARGET_COMPILER_GEN_FLAGS)
+
+list(APPEND HOST_CFLAGS ${TARGET_COMPILER_GEN_FLAGS})
 
 message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 message(STATUS "DASM_ARCH: ${DASM_ARCH}")
-message(STATUS "TARGET_ARCH: ${TARGET_ARCH}")
+message(STATUS "TARGET_COMPILER_GEN_FLAGS: ${TARGET_COMPILER_GEN_FLAGS}")
 message(STATUS "HOST_SYSTEM_NAME: ${HOST_SYSTEM_NAME}")
 message(STATUS "HOST_CFLAGS: ${HOST_CFLAGS}")
 message(STATUS "CMAKE_GENERATOR_INSTANCE: ${CMAKE_GENERATOR_INSTANCE}")
@@ -340,9 +353,8 @@ message(STATUS "CMAKE_GENERATOR: ${CMAKE_GENERATOR}")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/minilua)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm)
 
-if(TARGET64)
-    list(APPEND OVERRIDE_HOST_CFLAGS -DLUAJIT_ENABLE_GC64)
-endif()
+
+
 
 function(build_host_target)
     set(oneValueArgs TARGET TARGET_DIR COMMENT NEW_PATH)
@@ -381,7 +393,7 @@ function(build_host_target)
     endif()
 endfunction()
 
-if(HOST_WINDOWS AND NOT TARGET_WINDOWS AND TARGET64)
+if(HOST_WINDOWS AND NOT TARGET_WINDOWS AND TARGET_64BIT)
     set(OVERRIDE_PATH ${LUAJIT_MinGW64_PATH})
 endif()
 
@@ -466,7 +478,7 @@ set_target_properties(${LUA} PROPERTIES
     PUBLIC_HEADER "${EXPORT_HEADERS}"
 )
 
-if(TARGET64)
+if(TARGET_64BIT)
     target_compile_definitions(${LUA} PRIVATE LUAJIT_ENABLE_GC64)
 endif()
 
@@ -477,12 +489,12 @@ function(buildvm_generate)
     set(oneValueArgs DEF OUTPUT)
     set(multiValueArgs DEPENDS)
     cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-    add_custom_command(OUTPUT ${opt_OUTPUT} 
+    add_custom_command(OUTPUT ${opt_OUTPUT}
         COMMAND ${BUILDVM} ARGS -m ${opt_DEF} -o ${opt_OUTPUT} ${opt_DEPENDS}
         DEPENDS ${opt_DEPENDS}
     )
     target_sources(${LUA} PRIVATE ${opt_OUTPUT})
-    if(CLEAN_GENEARTED_FILES)
+    if(OPT_CLEAN_GENEARTED_FILES)
         add_custom_command(TARGET ${LUA} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${opt_OUTPUT}"
             COMMAND ${CMAKE_COMMAND} -E remove -f ${opt_OUTPUT}
