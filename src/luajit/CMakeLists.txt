@@ -106,6 +106,7 @@ endif()
 if(ANDROID OR HOST_LINUX OR HOST_APPLE)
 
     if(ANDROID)
+        
         if("${ANDROID_ABI}" MATCHES "armeabi.*")
             set(DASM_ARCH arm)
         elseif("${ANDROID_ABI}" STREQUAL "arm64-v8a")
@@ -118,26 +119,55 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
         else()
             message(FATAL_ERROR "Unsupport architecture \"${CMAKE_ANDROID_ARCH}\"")
         endif()
+
     elseif(HOST_LINUX)
+        
         if(NOT LUAJIT_TARGET32)
             set(DASM_ARCH x64)
         else()
             set(DASM_ARCH x86)
             list(APPEND TARGET_COMPILER_TEST_CFLAGS "-m32")
         endif()
-        list(APPEND HOST_CFLAGS -DLUAJIT_OS=LUAJIT_OS_LINUX)
-    elseif(TARGET_OSX)
-       # set(DASM_ARCH x64)
 
-        set(DASM_ARCH x86)
-        list(APPEND TARGET_COMPILER_TEST_CFLAGS "-m32")
+    elseif(TARGET_OSX)
+
+        if(NOT LUAJIT_TARGET32)
+            set(DASM_ARCH x64)
+        else()
+            set(DASM_ARCH x86)
+            list(APPEND TARGET_COMPILER_TEST_CFLAGS "-m32")
+        endif()
+
     elseif(TARGET_IOS)
         #set(DASM_ARCH arm64)
-        #list(APPEND TARGET_COMPILER_TEST_CFLAGS -DLJ_NO_SYSTEM=1 -DLUAJIT_ENABLE_GC64)
-        list(APPEND CMAKE_C_FLAGS -miphoneos-version-min=8.0)
-        set(DASM_ARCH arm)
-        list(APPEND TARGET_COMPILER_TEST_CFLAGS -m32 )
-        list(APPEND TARGET_COMPILER_GEN_FLAGS -m32)
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DLJ_NO_SYSTEM=1")
+        #list(APPEND CMAKE_C_FLAGS -miphoneos-version-min=8.0)
+
+        if(NOT CMAKE_OSX_ARCHITECTURES)
+            ## armv7;armv7s;arm64;i386;x86_64
+            message(FATAL_ERROR "CMAKE_OSX_ARCHITECTURES is not set.")
+        endif()
+
+        list(LENGTH CMAKE_OSX_ARCHITECTURES ios_architecture_size)
+        if(${ios_architecture_size} GREATER 1)
+            message(FATAL_ERROR "CMAKE_OSX_ARCHITECTURES only accept one value, but more than 1 are provided.")
+        endif()
+
+        message(STATUS "IOS ARCH: ${CMAKE_OSX_ARCHITECTURES}")
+        list(GET CMAKE_OSX_ARCHITECTURES 0 LUAJIT_IOS_ARCH)
+        if("${LUAJIT_IOS_ARCH}" MATCHES "arm64")
+            set(DASM_ARCH "arm64")
+        elseif("${LUAJIT_IOS_ARCH}" MATCHES "armv7.*")
+            set(DASM_ARCH "arm")
+        elseif("${LUAJIT_IOS_ARCH}" MATCHES "i386")
+            set(DASM_ARCH "x86")
+        elseif("${LUAJIT_IOS_ARCH}" MATCHES "x86_64")
+            set(DASM_ARCH "x64")
+        else()
+            message(FATAL_ERROR "CMAKE_OSX_ARCHITECTURES value incorrect.")
+        endif()
+        #list(APPEND TARGET_COMPILER_TEST_CFLAGS -m32 )
+        #list(APPEND TARGET_COMPILER_GEN_FLAGS -m32)
 
         #set(ENV{IPHONEOS_DEPLOYMENT_TARGET} 10.0)
     endif()
@@ -164,7 +194,7 @@ if(ANDROID OR HOST_LINUX OR HOST_APPLE)
             -D_FILE_OFFSET_BITS=64
             -D_LARGETFILE_SOURCE
             -U_FORTIFY_SOURCE
-            -arch armv7
+            -arch ${LUAJIT_IOS_ARCH}
             -E ${CMAKE_CURRENT_LIST_DIR}/src/lj_arch.h
             -dM
             -mfloat-abi=softfp -Wl,--fix-cortex-a8
@@ -361,9 +391,11 @@ function(build_host_target)
     set(multiValueArgs COMMANDS DEPENDS)
     cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
     set(COMMAND_STR)
-    foreach(i ${COMMANDS})
+    foreach(i ${opt_COMMANDS})
         set(COMMAND_STR "${COMMAND_STR} ${i}")
     endforeach()
+
+    message(STATUS "COMMAND_STR: ${COMMAND_STR}")
 
     if(HOST_APPLE)
         add_custom_target(${opt_TARGET} 
@@ -403,7 +435,7 @@ build_host_target(TARGET buildvm
     COMMENT     "Compiling buildvm..."
     COMMANDS    ${HOST_CMAKE}
                 -S "${CMAKE_CURRENT_LIST_DIR}/src/buildvm"
-                -G "${HOST_GENERATOR}"
+                -G"${HOST_GENERATOR}"
                 -B"${CMAKE_BINARY_DIR}/buildvm" 
                 -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
                 ${HOST_SYSTEM_NAME}
@@ -416,7 +448,7 @@ build_host_target(TARGET minilua
     COMMENT     "Compiling minilua..."
     COMMANDS    ${HOST_CMAKE}
                 -S "${CMAKE_CURRENT_LIST_DIR}/src/minilua"
-                -G "${HOST_GENERATOR}"
+                -G"${HOST_GENERATOR}"
                 -B"${CMAKE_BINARY_DIR}/minilua" 
                 -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
                 ${HOST_SYSTEM_NAME}
