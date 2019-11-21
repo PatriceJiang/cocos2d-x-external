@@ -31,7 +31,7 @@ elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Darwin")
     set(HOST_CMAKE cmake)
     set(HOST_APPLE ON)
     set(LJVM_MODE machasm)
-    set(HOST_SYSTEM_NAME -DCMAKE_SYSTEM_NAME=Darwin)
+    set(GENERATEOR_ARGS -DCMAKE_SYSTEM_NAME=Darwin)
 elseif("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Linux")
     set(HOST_GENERATOR "Unix Makefiles")
     set(HOST_CMAKE cmake)
@@ -331,13 +331,13 @@ if(HOST_WINDOWS AND NOT TARGET_WINDOWS)
     else()
         set(HOST_GENERATOR "MinGW Makefiles")
     endif()
-    if(TARGET_64BIT AND NOT LUAJIT_MinGW64_PATH)
-        message(FATAL_ERROR "Please set LUAJIT_MinGW64_PATH to locate gcc.exe")
+    if(NOT LUAJIT_MINGW_PATH)
+        message(STATUS "Please set LUAJIT_MINGW_PATH to mingw32/bin or mingw64/bin to locate gcc.exe")
     endif()
 elseif(HOST_WINDOWS)
     set(HOST_GENERATOR "${CMAKE_GENERATOR}")
     if(NOT "${CMAKE_GENERATOR_PLATFORM}" STREQUAL "")
-        set(HOST_SYSTEM_NAME -A${CMAKE_GENERATOR_PLATFORM} )
+        set(GENERATEOR_ARGS -A${CMAKE_GENERATOR_PLATFORM} )
     endif()
 endif()
 
@@ -355,10 +355,10 @@ else()
 endif()
 
 
-add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-    COMMAND ${MINILUA} ARGS ${dynasm_dir}/dynasm.lua ${DASM_AFLAGS} -o
-        ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
-        ${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc
+add_custom_command(OUTPUT "${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h"
+    COMMAND ${MINILUA} ARGS "${dynasm_dir}/dynasm.lua" ${DASM_AFLAGS} -o
+        "${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h"
+        "${CMAKE_CURRENT_LIST_DIR}/src/vm_${DASM_ARCH}.dasc"
     DEPENDS minilua ${dasm_lua} 
 )
 
@@ -373,7 +373,7 @@ list(APPEND HOST_CFLAGS ${TARGET_COMPILER_GEN_FLAGS})
 message(STATUS "DASM_AFLAGS: ${DASM_AFLAGS}")
 message(STATUS "DASM_ARCH: ${DASM_ARCH}")
 message(STATUS "TARGET_COMPILER_GEN_FLAGS: ${TARGET_COMPILER_GEN_FLAGS}")
-message(STATUS "HOST_SYSTEM_NAME: ${HOST_SYSTEM_NAME}")
+message(STATUS "GENERATEOR_ARGS: ${GENERATEOR_ARGS}")
 message(STATUS "HOST_CFLAGS: ${HOST_CFLAGS}")
 message(STATUS "CMAKE_GENERATOR_INSTANCE: ${CMAKE_GENERATOR_INSTANCE}")
 message(STATUS "CMAKE_GENERATOR_TOOLSET: ${CMAKE_GENERATOR_TOOLSET}")
@@ -383,19 +383,16 @@ message(STATUS "CMAKE_GENERATOR: ${CMAKE_GENERATOR}")
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/minilua)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/buildvm)
 
-
-
-
 function(build_host_target)
+        
     set(oneValueArgs TARGET TARGET_DIR COMMENT NEW_PATH)
     set(multiValueArgs COMMANDS DEPENDS)
     cmake_parse_arguments(opt "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    
     set(COMMAND_STR)
     foreach(i ${opt_COMMANDS})
         set(COMMAND_STR "${COMMAND_STR} ${i}")
     endforeach()
-
-    message(STATUS "COMMAND_STR: ${COMMAND_STR}")
 
     if(HOST_APPLE)
         add_custom_target(${opt_TARGET} 
@@ -425,8 +422,8 @@ function(build_host_target)
     endif()
 endfunction()
 
-if(HOST_WINDOWS AND NOT TARGET_WINDOWS AND TARGET_64BIT)
-    set(OVERRIDE_PATH ${LUAJIT_MinGW64_PATH})
+if(HOST_WINDOWS AND NOT TARGET_WINDOWS)
+    set(OVERRIDE_PATH ${LUAJIT_MINGW_PATH})
 endif()
 
 build_host_target(TARGET buildvm 
@@ -438,8 +435,8 @@ build_host_target(TARGET buildvm
                 -G"${HOST_GENERATOR}"
                 -B"${CMAKE_BINARY_DIR}/buildvm" 
                 -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
-                ${HOST_SYSTEM_NAME}
-    DEPENDS     ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+                ${GENERATEOR_ARGS}
+    DEPENDS     "${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h"
 )
 
 build_host_target(TARGET minilua 
@@ -451,7 +448,7 @@ build_host_target(TARGET minilua
                 -G"${HOST_GENERATOR}"
                 -B"${CMAKE_BINARY_DIR}/minilua" 
                 -DCMAKE_C_FLAGS="${HOST_CFLAGS}"
-                ${HOST_SYSTEM_NAME}
+                ${GENERATEOR_ARGS}
 )
     
 
@@ -516,6 +513,12 @@ endif()
 
 add_dependencies(${LUA} minilua buildvm)
 
+if(OPT_CLEAN_GENEARTED_FILES)
+    add_custom_command(TARGET ${LUA} POST_BUILD 
+        COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated file ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h"
+        COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_CURRENT_LIST_DIR}/src/host/buildvm_arch.h
+    )
+endif()
 ### generate headers 
 function(buildvm_generate)
     set(oneValueArgs DEF OUTPUT)

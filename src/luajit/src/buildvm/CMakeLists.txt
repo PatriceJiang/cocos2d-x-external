@@ -35,10 +35,6 @@ add_executable(buildvm
     ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm_arch.h
 )
 
-add_custom_command(TARGET buildvm POST_BUILD 
-    COMMAND ${CMAKE_COMMAND} -E echo "POST_BUILD: remove generated ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm_arch.h}"
-    COMMAND ${CMAKE_COMMAND} -E remove -f ${CMAKE_CURRENT_LIST_DIR}/../host/buildvm_arch.h
-)
 
 target_include_directories(buildvm PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/..
