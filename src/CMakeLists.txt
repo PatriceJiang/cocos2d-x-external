@@ -22,9 +22,34 @@ add_subdirectory(lua)
 add_subdirectory(libressl)
 add_subdirectory(png)
 add_subdirectory(rapidjson/lib)
+
+set(BUILD_TESTING OFF)
 add_subdirectory(uv)
 add_subdirectory(webp)
-# add_subdirectory(websockets)
+
+## websockets options
+set(LWS_WITH_SHARED OFF)
+set(LWS_WITH_LIBUV ON)
+set(LWS_WITHOUT_TESTAPPS ON)
+set(LWS_LINK_TESTAPPS_DYNAMIC ON)
+set(LWS_WITHOUT_TEST_SERVER ON)
+set(LWS_WITHOUT_TEST_PING ON)
+set(LWS_WITHOUT_TEST_ECHO ON)
+set(LWS_WITHOUT_TEST_CLIENT ON)
+set(LWS_WITHOUT_TEST_FRAGGLE ON)
+set(LWS_STATIC_PIC ON)
+## websockets paths
+set(LIBUV_FOUND ON)
+set(LWS_LIBUV_INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/uv/include)
+set(LWS_LIBUV_LIBRARIES $<TARGET_FILE:uv_a>)
+set(OPENSSL_FOUND ON)
+set(OPENSSL_INCLUDE_DIRS ${CMAKE_CURRENT_LIST_DIR}/libressl/include)
+set(OPENSSL_LIBRARIES $<TARGET_FILE:crypto> $<TARGET_FILE:ssl>)
+add_subdirectory(websockets)
+if(TARGET websockets)
+    add_dependencies(websockets uv_a ssl crypto)
+endif()
+
 
 add_library(external empty.cpp)
 
@@ -46,7 +71,7 @@ target_link_libraries(external
     rapidjson
     uv_a
     webp
-    # websockets
+    websockets
 )
 
 if(ANDROID)
