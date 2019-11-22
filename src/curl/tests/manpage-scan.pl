@@ -6,7 +6,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2016, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 2016 - 2019, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -39,8 +39,9 @@
 use strict;
 use warnings;
 
-# we may get the dir root pointed out
+# we may get the dir roots pointed out
 my $root=$ARGV[0] || ".";
+my $buildroot=$ARGV[1] || ".";
 my $syms = "$root/docs/libcurl/symbols-in-versions";
 my $curlh = "$root/include/curl/curl.h";
 my $errors=0;
@@ -137,6 +138,7 @@ my %opts = (
     '-N, --no-buffer' => 1,
     '--no-sessionid' => 1,
     '--no-keepalive' => 1,
+    '--no-progress-meter' => 1,
 
     # pretend these options without -no exist in curl.1 and tool_help.c
     '--alpn' => 6,
@@ -146,6 +148,7 @@ my %opts = (
     '--keepalive' => 6,
     '-N, --buffer' => 6,
     '--sessionid' => 6,
+    '--progress-meter' => 6,
 
     # deprecated options do not need to be in tool_help.c nor curl.1
     '--krb4' => 6,
@@ -196,7 +199,8 @@ close(R);
 
 #########################################################################
 # parse the curl.1 man page, extract all documented command line options
-open(R, "<$root/docs/curl.1") ||
+# The man page may or may not be rebuilt, so check both possible locations
+open(R, "<$buildroot/docs/curl.1") || open(R, "<$root/docs/curl.1") ||
     die "no input file";
 my @manpage; # store all parsed parameters
 while(<R>) {
@@ -230,7 +234,7 @@ my @toolhelp; # store all parsed parameters
 while(<R>) {
     chomp;
     my $l= $_;
-    if(/^  \" *(.*)/) {
+    if(/^  \{\" *(.*)/) {
         my $str=$1;
         my $combo;
         if($str =~ /^-(.), --([a-z0-9.-]*)/) {
