@@ -73,8 +73,8 @@ include_directories(${CURL_SOURCE_DIR}/include)
 
 option(CURL_WERROR "Turn compiler warnings into errors" OFF)
 option(PICKY_COMPILER "Enable picky compiler options" ON)
-option(BUILD_CURL_EXE "Set to ON to build curl executable." ON)
-option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(CURL_BUILD_CURL_EXE "Set to ON to build curl executable." ON)
+option(CURL_BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(ENABLE_ARES "Set to ON to enable c-ares support" OFF)
 if(WIN32)
   option(CURL_STATIC_CRT "Set to ON to build libcurl with static CRT on Windows (/MT)." OFF)
@@ -85,8 +85,8 @@ cmake_dependent_option(ENABLE_THREADED_RESOLVER "Set to ON to enable threaded DN
         ON "NOT ENABLE_ARES"
         OFF)
 
-option(ENABLE_DEBUG "Set to ON to enable curl debug features" OFF)
-option(ENABLE_CURLDEBUG "Set to ON to build with TrackMemory feature enabled" OFF)
+option(CURL_ENABLE_DEBUG "Set to ON to enable curl debug features" OFF)
+option(CURL_ENABLE_CURLDEBUG "Set to ON to build with TrackMemory feature enabled" OFF)
 
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG)
   if(PICKY_COMPILER)
@@ -101,13 +101,13 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_CLANG)
   endif()
 endif()
 
-if(ENABLE_DEBUG)
+if(CURL_ENABLE_DEBUG)
   # DEBUGBUILD will be defined only for Debug builds
   set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS $<$<CONFIG:Debug>:DEBUGBUILD>)
-  set(ENABLE_CURLDEBUG ON)
+  set(CURL_ENABLE_CURLDEBUG ON)
 endif()
 
-if(ENABLE_CURLDEBUG)
+if(CURL_ENABLE_CURLDEBUG)
   set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS CURLDEBUG)
 endif()
 
@@ -208,7 +208,7 @@ cmake_dependent_option(ENABLE_MANUAL "to provide the built-in manual"
 
 if(NOT PERL_FOUND)
   message(STATUS "Perl not found, testing disabled.")
-  set(BUILD_TESTING OFF)
+  set(CURL_BUILD_TESTING OFF)
 endif()
 if(ENABLE_MANUAL)
   set(USE_MANUAL ON)
@@ -344,21 +344,21 @@ if(CMAKE_USE_SECTRANSP)
 endif()
 
 if(CMAKE_USE_OPENSSL)
-  find_package(OpenSSL REQUIRED)
+  # find_package(OpenSSL REQUIRED)
   set(SSL_ENABLED ON)
   set(USE_OPENSSL ON)
 
   # Depend on OpenSSL via imported targets if supported by the running
   # version of CMake.  This allows our dependents to get our dependencies
   # transitively.
-  if(NOT CMAKE_VERSION VERSION_LESS 3.4)
-    list(APPEND CURL_LIBS OpenSSL::SSL OpenSSL::Crypto)
-  else()
-    list(APPEND CURL_LIBS ${OPENSSL_LIBRARIES})
-    include_directories(${OPENSSL_INCLUDE_DIR})
-  endif()
+  # if(NOT CMAKE_VERSION VERSION_LESS 3.4)
+    # list(APPEND CURL_LIBS OpenSSL::SSL OpenSSL::Crypto)
+  # else()
+    list(APPEND CURL_LIBS ${CURL_OPENSSL_LIBRARIES})
+    include_directories(${CURL_OPENSSL_INCLUDE_DIR})
+  # endif()
 
-  set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
+  set(CMAKE_REQUIRED_INCLUDES ${CURL_OPENSSL_INCLUDE_DIR})
   check_include_file("openssl/crypto.h" HAVE_OPENSSL_CRYPTO_H)
   check_include_file("openssl/err.h"    HAVE_OPENSSL_ERR_H)
   check_include_file("openssl/pem.h"    HAVE_OPENSSL_PEM_H)
@@ -1162,12 +1162,12 @@ endif()
 
 add_subdirectory(lib)
 
-if(BUILD_CURL_EXE)
+if(CURL_BUILD_CURL_EXE)
   add_subdirectory(src)
 endif()
 
 include(CTest)
-if(BUILD_TESTING)
+if(CURL_BUILD_TESTING)
   add_subdirectory(tests)
 endif()
 
@@ -1264,7 +1264,7 @@ set(CONFIGURE_OPTIONS       "")
 # TODO when to set "-DCURL_STATICLIB" for CPPFLAG_CURL_STATICLIB?
 set(CPPFLAG_CURL_STATICLIB  "")
 set(CURLVERSION             "${CURL_VERSION}")
-if(BUILD_SHARED_LIBS)
+if(CURL_BUILD_SHARED_LIBS)
   set(ENABLE_SHARED         "yes")
   set(ENABLE_STATIC         "no")
 else()
@@ -1331,11 +1331,11 @@ configure_package_config_file(CMake/curl-config.cmake.in
         INSTALL_DESTINATION ${CURL_INSTALL_CMAKE_DIR}
 )
 
-install(
-        EXPORT "${TARGETS_EXPORT_NAME}"
-        NAMESPACE "${PROJECT_NAME}::"
-        DESTINATION ${CURL_INSTALL_CMAKE_DIR}
-)
+# install(
+#         EXPORT "${TARGETS_EXPORT_NAME}"
+#         NAMESPACE "${PROJECT_NAME}::"
+#         DESTINATION ${CURL_INSTALL_CMAKE_DIR}
+# )
 
 install(
         FILES ${version_config} ${project_config}
